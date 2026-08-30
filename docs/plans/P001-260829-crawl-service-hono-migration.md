@@ -1,6 +1,6 @@
 # P001 — Migrate crawl subsystem from warada_v2 (Quarkus) into crawl-app (Hono/Bun)
 
-**Status:** active
+**Status:** done
 **Created:** 2026-08-29
 **Linked backlog:** [B001-260829-crawl-service-hono-migration](../backlogs/B001-260829-crawl-service-hono-migration.md)
 

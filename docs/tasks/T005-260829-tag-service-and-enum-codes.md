@@ -1,6 +1,6 @@
 # T005 — Tag resolution service and enum code mapping
 
-**Status:** pending
+**Status:** done
 **Created:** 2026-08-29
 **Plan:** [P001-260829-crawl-service-hono-migration](../plans/P001-260829-crawl-service-hono-migration.md)
 
@@ -44,3 +44,5 @@ critical wire-format detail lives in exactly one place. Depends on T002
 ## 4. Work history
 
 - 2026-08-29: Task created from plan P001 Section 5.2.1/5.6/5.10, not yet started.
+- 2026-08-29: Added tag normalization, reuse/create, count increments, and the
+  database-compatible crawl/image code constants with local database coverage.

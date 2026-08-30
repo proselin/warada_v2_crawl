@@ -1,6 +1,6 @@
 # T001 — Config and env loader
 
-**Status:** pending
+**Status:** done
 **Created:** 2026-08-29
 **Plan:** [P001-260829-crawl-service-hono-migration](../plans/P001-260829-crawl-service-hono-migration.md)
 
@@ -41,3 +41,6 @@ config, so it must land first.
 ## 4. Work history
 
 - 2026-08-29: Task created from plan P001 Section 5.10/6, not yet started.
+- 2026-08-29: Added typed environment parsing, safe local defaults, `.env.example`,
+  and `.env` ignore coverage. The planned zod dependency was not needed for the
+  small fixed configuration shape.

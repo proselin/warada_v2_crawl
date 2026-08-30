@@ -1,7 +1,9 @@
 {
   "name": "crawl-app",
   "scripts": {
-    "dev": "bun run --hot src/index.ts"
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "cleanup": "bun run src/scripts/cleanup.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

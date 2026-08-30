@@ -16,7 +16,7 @@ export const minioClient = new Client({
 });
 
 export async function ensureBucketExists(bucket = config.imageBucket) {
-  const exists = await minioClient.bucketExists(bucket).catch(() => false);
+  const exists = await minioClient.bucketExists(bucket);
   if (!exists) await minioClient.makeBucket(bucket);
 }
 

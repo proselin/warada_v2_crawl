@@ -1,6 +1,6 @@
 # T003 — MinIO client wrapper
 
-**Status:** pending
+**Status:** done
 **Created:** 2026-08-29
 **Plan:** [P001-260829-crawl-service-hono-migration](../plans/P001-260829-crawl-service-hono-migration.md)
 
@@ -35,3 +35,5 @@ layout and rename-on-success pattern from Plan Section 5.4. Depends on T001
 ## 4. Work history
 
 - 2026-08-29: Task created from plan P001 Section 5.4/5.10, not yet started.
+- 2026-08-29: Added the MinIO bucket, temp upload, copy/delete rename, list, and
+  remove wrappers with mocked SDK coverage.

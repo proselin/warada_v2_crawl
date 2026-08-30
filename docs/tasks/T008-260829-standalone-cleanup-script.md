@@ -1,6 +1,6 @@
 # T008 — Standalone cleanup script
 
-**Status:** pending
+**Status:** done
 **Created:** 2026-08-29
 **Plan:** [P001-260829-crawl-service-hono-migration](../plans/P001-260829-crawl-service-hono-migration.md)
 
@@ -40,3 +40,5 @@ Depends on T001 (config) and T003 (MinIO).
 ## 4. Work history
 
 - 2026-08-29: Task created from plan P001 Section 5.8/5.10, not yet started.
+- 2026-08-29: Added the standalone `bun run cleanup` command and startup cleanup
+  pass, with cutoff and disabled-mode tests.

@@ -1,6 +1,6 @@
 # T002 — Drizzle schema and DB client (no migrations)
 
-**Status:** pending
+**Status:** done
 **Created:** 2026-08-29
 **Plan:** [P001-260829-crawl-service-hono-migration](../plans/P001-260829-crawl-service-hono-migration.md)
 
@@ -43,3 +43,6 @@ in 5.2.1). Depends on T001 (config) for the Postgres connection string.
 ## 4. Work history
 
 - 2026-08-29: Task created from plan P001 Section 5.2/5.10, not yet started.
+- 2026-08-29: Added Drizzle definitions for all shared tables, sequence-backed ID
+  allocation, and a PostgreSQL client. PGlite is used only as a local/test fallback;
+  a configured `DATABASE_URL` never receives bootstrap DDL.

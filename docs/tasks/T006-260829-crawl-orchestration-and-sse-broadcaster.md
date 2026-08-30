@@ -1,6 +1,6 @@
 # T006 — Crawl orchestration service and SSE broadcaster
 
-**Status:** pending
+**Status:** done
 **Created:** 2026-08-29
 **Plan:** [P001-260829-crawl-service-hono-migration](../plans/P001-260829-crawl-service-hono-migration.md)
 
@@ -56,3 +56,5 @@ T004 (extractor), T005 (tags/enums).
 ## 4. Work history
 
 - 2026-08-29: Task created from plan P001 Section 5.6/5.7/5.10, not yet started.
+- 2026-08-29: Added crawl orchestration, progress broadcasting, active-crawl
+  tracking, and duplicate/not-found/active guard coverage.

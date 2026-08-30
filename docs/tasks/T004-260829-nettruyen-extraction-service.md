@@ -1,6 +1,6 @@
 # T004 — NetTruyen scraping/extraction service
 
-**Status:** pending
+**Status:** done
 **Created:** 2026-08-29
 **Plan:** [P001-260829-crawl-service-hono-migration](../plans/P001-260829-crawl-service-hono-migration.md)
 
@@ -53,3 +53,5 @@ and T003 (MinIO) for saving downloaded images to `temp/`.
 ## 4. Work history
 
 - 2026-08-29: Task created from plan P001 Section 5.3/5.5/5.10, not yet started.
+- 2026-08-29: Implemented JSON-LD, chapter-list, chapter-image extraction and
+  CDN download fallback with mocked-fetch coverage.

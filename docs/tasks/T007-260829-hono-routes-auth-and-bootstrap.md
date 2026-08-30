@@ -1,6 +1,6 @@
 # T007 — Hono routes, auth middleware, and app bootstrap
 
-**Status:** pending
+**Status:** done
 **Created:** 2026-08-29
 **Plan:** [P001-260829-crawl-service-hono-migration](../plans/P001-260829-crawl-service-hono-migration.md)
 
@@ -46,3 +46,5 @@ wiring the REST surface from Plan Section 5.1, the auth decision from Section
 ## 4. Work history
 
 - 2026-08-29: Task created from plan P001 Section 5.1/5.8/5.10/5.11, not yet started.
+- 2026-08-29: Added crawl route registration, API-key middleware, public health
+  endpoint, startup initialization, and route-level authentication/validation tests.

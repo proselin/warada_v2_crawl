@@ -53,8 +53,11 @@ export async function crawlNettruyenComic(slugNId: string): Promise<CrawlResult>
   if (dup.length > 0) return { status: 409, body: "Conflict" };
 
   markActive(slugNId);
+  let resolvedSlug: string | undefined;
   try {
     const detail = await extractComicDetail(slugNId);
+    resolvedSlug = detail.slug;
+    markActive(resolvedSlug);
     const chapterStubs = await fetchChapterList(detail.slug, detail.comicId);
     const tagIds = await resolveOrCreateTags(detail.genres);
 
@@ -110,6 +113,7 @@ export async function crawlNettruyenComic(slugNId: string): Promise<CrawlResult>
 
     return { status: 200, body: "Success" };
   } finally {
+    if (resolvedSlug) markInactive(resolvedSlug);
     markInactive(slugNId);
   }
 }
