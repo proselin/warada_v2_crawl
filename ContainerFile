@@ -1,0 +1,36 @@
+# --- Stage 1: Base / Dependencies ---
+FROM oven/bun:1.4-alpine AS base
+WORKDIR /app
+
+# Install dependencies into a temporary directory to cache them
+FROM base AS install
+RUN mkdir -p /tmp/dev && mkdir -p /tmp/prod
+# COPY package.json bun.lock /tmp/dev/
+COPY package.json bun.lock /tmp/prod/
+
+# Install development dependencies (needed if you have a build/compile step)
+# RUN cd /tmp/dev && bun install --frozen-lockfile
+
+# Install production dependencies only
+RUN cd /tmp/prod && bun install --frozen-lockfile --production --verbose
+
+# --- Stage 2: Build (Optional) ---
+# FROM base AS prerelease
+#COPY --from=install /tmp/dev/node_modules node_modules
+#COPY . .
+
+# Uncomment the line below if your app requires a build step (e.g., Next.js, Vite, NestJS)
+# RUN bun run build
+
+# --- Stage 3: Production Runner ---
+FROM base AS release
+# Use production dependencies
+COPY --from=install /tmp/prod/node_modules node_modules
+# Copy application source code (or build output if applicable)
+#COPY --from=prerelease /app/ . 
+COPY . .
+
+# Run the container under a non-root user for security
+USER bun
+EXPOSE 3000/tcp
+ENTRYPOINT [ "bun", "run", "src/index.ts" ]
