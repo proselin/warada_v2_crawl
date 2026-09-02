@@ -10,7 +10,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { config } from "./config";
-import { trace } from "./log";
+import { elapsedMs, trace } from "./log";
 import * as schema from "./schema";
 
 export const client = postgres(config.databaseUrl);
@@ -19,9 +19,10 @@ trace("database.client.initialized");
 
 /** Mirrors JPA's @SequenceGenerator(allocationSize=1): fetch-then-insert. */
 export async function nextId(sequenceName: "comic_id_seq" | "chapter_id_seq" | "image_id_seq" | "tag_id_seq"): Promise<number> {
+  const startedAt = performance.now();
   const [row] = await client<{ id: string | number }[]>`SELECT nextval(${sequenceName}::regclass) AS id`;
   if (!row) throw new Error(`Could not allocate an ID from ${sequenceName}`);
   const id = Number(row.id);
-  trace("database.id.allocated", { sequenceName, id });
+  trace("database.id.allocated", { sequenceName, id, durationMs: elapsedMs(startedAt) });
   return id;
 }

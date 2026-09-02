@@ -6,7 +6,7 @@
 import { config } from "../lib/config";
 import { and, eq } from "drizzle-orm";
 import { db, nextId } from "../lib/db";
-import { trace, traceError } from "../lib/log";
+import { elapsedMs, trace, traceError } from "../lib/log";
 import { chapters, comics, comicTags, CrawlStatus, images, ImageType } from "../lib/schema";
 import { putTempObject, renameToPermanent } from "../lib/minio";
 import { broadcast, isActive, markActive, markInactive } from "../lib/broadcaster";
@@ -48,14 +48,15 @@ export async function comicExistsBySlug(slug: string): Promise<boolean> {
 }
 
 export async function crawlNettruyenComic(slugNId: string): Promise<CrawlResult> {
+  const startedAt = performance.now();
   if (isActive(slugNId)) {
-    trace("crawl.rejected.active", { slugNId });
+    trace("crawl.rejected.active", { slugNId, durationMs: elapsedMs(startedAt) });
     return { status: 409, body: "Conflict" };
   }
 
   const dup = await db.select({ id: comics.id }).from(comics).where(eq(comics.originPathParams, slugNId)).limit(1);
   if (dup.length > 0) {
-    trace("crawl.rejected.duplicate", { slugNId, comicId: dup[0]?.id });
+    trace("crawl.rejected.duplicate", { slugNId, comicId: dup[0]?.id, durationMs: elapsedMs(startedAt) });
     return { status: 409, body: "Conflict" };
   }
 
@@ -126,10 +127,10 @@ export async function crawlNettruyenComic(slugNId: string): Promise<CrawlResult>
     const insertedChapters = await db.select().from(chapters).where(eq(chapters.comicId, comicId));
     await runChapterCrawlLoop(detail.slug, insertedChapters);
 
-    trace("crawl.completed", { slug: detail.slug, comicId });
+    trace("crawl.completed", { slug: detail.slug, comicId, durationMs: elapsedMs(startedAt) });
     return { status: 200, body: "Success" };
   } catch (error) {
-    traceError("crawl.failed", error, { slugNId, resolvedSlug });
+    traceError("crawl.failed", error, { slugNId, resolvedSlug, durationMs: elapsedMs(startedAt) });
     throw error;
   } finally {
     if (resolvedSlug) markInactive(resolvedSlug);
@@ -139,13 +140,14 @@ export async function crawlNettruyenComic(slugNId: string): Promise<CrawlResult>
 }
 
 export async function retryFailedChapters(slug: string): Promise<RetryResult> {
+  const startedAt = performance.now();
   const [comic] = await db.select().from(comics).where(eq(comics.slug, slug)).limit(1);
   if (!comic) {
-    trace("crawl.retry.rejected.not-found", { slug });
+    trace("crawl.retry.rejected.not-found", { slug, durationMs: elapsedMs(startedAt) });
     return { status: 404, body: "Not Found" };
   }
   if (isActive(slug)) {
-    trace("crawl.retry.rejected.active", { slug, comicId: comic.id });
+    trace("crawl.retry.rejected.active", { slug, comicId: comic.id, durationMs: elapsedMs(startedAt) });
     return { status: 409, body: "Conflict" };
   }
 
@@ -157,10 +159,10 @@ export async function retryFailedChapters(slug: string): Promise<RetryResult> {
       .where(and(eq(chapters.comicId, comic.id), eq(chapters.crawlingStatus, CrawlStatus.INIT)));
     trace("crawl.retry.started", { slug, comicId: comic.id, chapterCount: pending.length });
     await runChapterCrawlLoop(slug, pending);
-    trace("crawl.retry.completed", { slug, comicId: comic.id, chapterCount: pending.length });
+    trace("crawl.retry.completed", { slug, comicId: comic.id, chapterCount: pending.length, durationMs: elapsedMs(startedAt) });
     return { status: 200, body: "Retry queued" };
   } catch (error) {
-    traceError("crawl.retry.failed", error, { slug, comicId: comic.id });
+    traceError("crawl.retry.failed", error, { slug, comicId: comic.id, durationMs: elapsedMs(startedAt) });
     throw error;
   } finally {
     markInactive(slug);
@@ -170,8 +172,10 @@ export async function retryFailedChapters(slug: string): Promise<RetryResult> {
 
 /** Sequential per-chapter crawl: scrape -> download images -> persist. One failure never aborts the rest (plan 5.6 #3). */
 async function runChapterCrawlLoop(comicSlug: string, chapterRows: (typeof chapters.$inferSelect)[]): Promise<void> {
+  const startedAt = performance.now();
   trace("crawl.chapters.started", { comicSlug, chapterCount: chapterRows.length });
   for (const chapter of chapterRows) {
+    const chapterStartedAt = performance.now();
     trace("crawl.chapter.started", { comicSlug, chapterId: chapter.id, chapterNumber: chapter.chapterNum });
     broadcast(comicSlug, {
       type: "processing",
@@ -208,7 +212,12 @@ async function runChapterCrawlLoop(comicSlug: string, chapterRows: (typeof chapt
         }
         await tx.update(chapters).set({ crawlingStatus: CrawlStatus.FINISHED }).where(eq(chapters.id, chapter.id));
       });
-      trace("crawl.chapter.completed", { comicSlug, chapterId: chapter.id, imageCount: downloaded.length });
+      trace("crawl.chapter.completed", {
+        comicSlug,
+        chapterId: chapter.id,
+        imageCount: downloaded.length,
+        durationMs: elapsedMs(chapterStartedAt),
+      });
 
       broadcast(comicSlug, {
         type: "completed",
@@ -216,7 +225,12 @@ async function runChapterCrawlLoop(comicSlug: string, chapterRows: (typeof chapt
         data: { chapterId: chapter.id, chapterNumber: chapter.chapterNum ?? "", status: null, comicSlug },
       });
     } catch (err) {
-      traceError("crawl.chapter.failed", err, { comicSlug, chapterId: chapter.id, chapterNumber: chapter.chapterNum });
+      traceError("crawl.chapter.failed", err, {
+        comicSlug,
+        chapterId: chapter.id,
+        chapterNumber: chapter.chapterNum,
+        durationMs: elapsedMs(chapterStartedAt),
+      });
       broadcast(comicSlug, {
         type: "failed",
         message: err instanceof Error ? err.message : String(err),
@@ -224,5 +238,5 @@ async function runChapterCrawlLoop(comicSlug: string, chapterRows: (typeof chapt
       });
     }
   }
-  trace("crawl.chapters.completed", { comicSlug, chapterCount: chapterRows.length });
+  trace("crawl.chapters.completed", { comicSlug, chapterCount: chapterRows.length, durationMs: elapsedMs(startedAt) });
 }

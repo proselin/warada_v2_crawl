@@ -1,5 +1,9 @@
 type TraceFields = Record<string, boolean | number | string | null | undefined>;
 
+export function elapsedMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
+}
+
 export function trace(event: string, fields: TraceFields = {}): void {
   console.log(`[trace] ${event}`, fields);
 }

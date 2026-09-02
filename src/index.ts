@@ -1,13 +1,21 @@
 import { Hono } from "hono";
-import { logger } from "hono/logger";
-import { traceError } from "./lib/log";
+import { elapsedMs, trace, traceError } from "./lib/log";
 import { ensureBucketExists } from "./lib/minio";
 import crawl from "./routes/crawl";
 import { cleanupTempObjects } from "./scripts/cleanup";
 
 const app = new Hono();
 
-app.use("*", logger());
+app.use("*", async (c, next) => {
+  const startedAt = performance.now();
+  await next();
+  trace("http.request.completed", {
+    method: c.req.method,
+    path: c.req.path,
+    status: c.res.status,
+    durationMs: elapsedMs(startedAt),
+  });
+});
 app.onError((error, c) => {
   traceError("http.request.failed", error, { method: c.req.method, path: c.req.path });
   return c.text("Internal Server Error", 500);
