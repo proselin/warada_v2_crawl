@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { config } from "./lib/config";
-import app from "./index";
+import { app } from "./index";
 
 const apiKey = config.crawlApiKey;
 afterEach(() => {

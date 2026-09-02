@@ -23,14 +23,13 @@ app.onError((error, c) => {
 app.get("/health", (c) => c.text("OK"));
 app.route("/api/v1/crawl", crawl);
 
-export default app;
+export { app };
 
 async function start() {
   try {
     await ensureBucketExists();
     await cleanupTempObjects();
     console.log(`Server is starting on port ${process.env.PORT ?? 3000}`);
-    Bun.serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 3000) });
   } catch (error) {
     console.error("Failed to start the server:", error);
   }
@@ -39,3 +38,12 @@ async function start() {
 if (import.meta.main) {
   await start();
 }
+
+// Bun automatically serves the default export when it exposes a `fetch`
+// method, so it must be the only place a server gets started for this
+// module. Calling `Bun.serve` here as well would try to bind the same port
+// twice and fail with EADDRINUSE.
+export default {
+  fetch: app.fetch,
+  port: Number(process.env.PORT ?? 3000),
+};
