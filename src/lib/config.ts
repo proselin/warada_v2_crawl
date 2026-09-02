@@ -5,6 +5,22 @@ function optional(name: string, fallback: string): string {
   return process.env[name] ?? fallback;
 }
 
+function requiredDatabaseUrl(): string {
+  const value = process.env.DATABASE_URL?.trim();
+  if (!value) throw new Error("DATABASE_URL must be set to a PostgreSQL connection string");
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
+      throw new Error("invalid protocol");
+    }
+  } catch {
+    throw new Error("DATABASE_URL must be a valid postgres:// or postgresql:// connection string");
+  }
+
+  return value;
+}
+
 function positiveInt(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined) return fallback;
@@ -34,11 +50,7 @@ export const config = {
 
   crawlApiKey: process.env.CRAWL_API_KEY, // undefined => auth disabled (dev convenience)
 
-  // Postgres: no DATABASE_URL yet => fall back to an embedded PGlite
-  // instance (zero setup, real Postgres semantics). Set DATABASE_URL to a
-  // postgres:// connection string once the shared DB is ready; no code
-  // changes needed, same drizzle schema works with both drivers.
-  databaseUrl: process.env.DATABASE_URL,
+  databaseUrl: requiredDatabaseUrl(),
 
   minioEndpoint: optional("MINIO_ENDPOINT", "localhost"),
   minioPort: positiveInt("MINIO_PORT", 9000),
@@ -46,9 +58,3 @@ export const config = {
   minioAccessKey: optional("MINIO_ACCESS_KEY", "minioadmin"),
   minioSecretKey: optional("MINIO_SECRET_KEY", "minioadmin"),
 };
-
-// Fail fast for the one var that's actually required to boot at all when a
-// real DB is intended (DATABASE_URL absence is fine — that's the PGlite path).
-if (process.env.DATABASE_URL !== undefined && process.env.DATABASE_URL.trim() === "") {
-  throw new Error("DATABASE_URL is set but empty; unset it to use PGlite or provide a real connection string");
-}
