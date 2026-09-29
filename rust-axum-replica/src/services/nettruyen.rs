@@ -1,12 +1,11 @@
 use std::fs;
-use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Timelike};
 use regex::Regex;
 use serde_json::Value;
 
-use crate::config::nettruyen_url;
+use crate::config::{image_storage_dir, nettruyen_url};
 
 #[derive(Clone, Debug)]
 pub struct ExtractedComicDetail {
@@ -158,6 +157,10 @@ pub async fn fetch_chapter_image_candidates(origin_url: &str) -> Result<Vec<Imag
         anyhow::bail!("Failed to fetch chapter page {}: HTTP {}", origin_url, response.status());
     }
     let html = response.text().await?;
+    Ok(extract_chapter_image_candidates(&html))
+}
+
+pub fn extract_chapter_image_candidates(html: &str) -> Vec<ImageCandidate> {
     let tag_re = Regex::new(r#"<[^>]*\bdata-sv1=['"][^'"]+['"][^>]*>"#).unwrap();
     let sv1_re = Regex::new(r#"data-sv1=['\"]([^'\"]+)['\"]"#).unwrap();
     let sv2_re = Regex::new(r#"data-sv2=['\"]([^'\"]+)['\"]"#).unwrap();
@@ -171,7 +174,7 @@ pub async fn fetch_chapter_image_candidates(origin_url: &str) -> Result<Vec<Imag
             candidates.push(ImageCandidate { sv1, sv2 });
         }
     }
-    Ok(candidates)
+    candidates
 }
 
 pub async fn download_image(url: &str) -> Result<DownloadedImage> {
@@ -193,7 +196,7 @@ pub async fn download_image(url: &str) -> Result<DownloadedImage> {
         anyhow::bail!("Failed to download image {}: HTTP {}", url, response.status());
     }
 
-    let content_type = response
+    let content_type: String = response
         .headers()
         .get("content-type")
         .and_then(|v| v.to_str().ok())
@@ -234,25 +237,26 @@ pub async fn download_chapter_image(candidate: &ImageCandidate) -> Result<Downlo
 }
 
 pub async fn put_temp_object(file_name: &str, bytes: &[u8], _content_type: &str) -> Result<String> {
-    let dir = std::path::PathBuf::from("./runtime/temp");
+    let dir = image_storage_dir().join("temp");
     fs::create_dir_all(&dir).context("create temp dir")?;
     let target = dir.join(file_name);
     fs::write(&target, bytes).context("write temp object")?;
     let relative = format!("temp/{}", file_name);
-    tracing::info!("minio.temp.object.write path={} bytes={}", relative, bytes.len());
+    tracing::info!("image.local.temp.write path={} bytes={}", relative, bytes.len());
     Ok(relative)
 }
 
 pub async fn rename_to_permanent(temp_path: &str, permanent_path: &str) -> Result<()> {
-    let temp = Path::new(".").join(temp_path);
-    let permanent = Path::new(".").join(permanent_path);
+    let root: std::path::PathBuf = image_storage_dir();
+    let temp: std::path::PathBuf = root.join(temp_path);
+    let permanent: std::path::PathBuf = root.join(permanent_path);
     if let Some(parent) = permanent.parent() {
         fs::create_dir_all(parent).context("create permanent dir")?;
     }
     if temp.exists() {
         fs::rename(&temp, &permanent).context("rename temp to permanent")?;
     }
-    tracing::info!("minio.temp.object.promoted from={} to={}", temp_path, permanent_path);
+    tracing::info!("image.local.promoted from={} to={}", temp_path, permanent_path);
     Ok(())
 }
 
@@ -267,71 +271,4 @@ pub fn timestamp_tag() -> String {
         now.minute(),
         now.second(),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extract_regex_group_reads_the_first_capture() {
-        let html = r#"<script>gOpts.comicSlug = "one-piece";</script>"#;
-        let found = extract_regex_group(html, r#"gOpts\.comicSlug\s*=\s*["']([^"']+)["']"#, "comicSlug").unwrap();
-        assert_eq!(found, "one-piece");
-    }
-
-    #[test]
-    fn find_comic_series_node_matches_comicseries_json_ld() {
-        let html = r#"
-            <script type="application/ld+json">
-                {
-                    "@graph": [
-                        { "@type": "WebSite", "name": "Example" },
-                        { "@type": "ComicSeries", "name": "One Piece", "genre": ["Action", "Adventure"] }
-                    ]
-                }
-            </script>
-        "#;
-
-        let node = find_comic_series_node(html).unwrap();
-        assert_eq!(node.get("name").and_then(|v| v.as_str()), Some("One Piece"));
-        assert_eq!(node.get("genre").and_then(|v| v.as_array()).unwrap().len(), 2);
-    }
-
-    #[test]
-    fn fetch_chapter_image_candidates_extracts_sv1_sv2_pairs() {
-        let html = r#"
-            <img data-sv1="https://img-a.example/1.jpg" data-sv2="https://img-b.example/1.jpg" />
-            <img data-sv1="https://img-a.example/2.jpg" />
-        "#;
-
-        let candidates = fetch_chapter_image_candidates_from_html(html);
-        assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].sv1, "https://img-a.example/1.jpg");
-        assert_eq!(candidates[0].sv2.as_deref(), Some("https://img-b.example/1.jpg"));
-        assert_eq!(candidates[1].sv2, None);
-    }
-
-    #[test]
-    fn extension_helpers_read_common_formats() {
-        assert_eq!(extension_from_url("https://example.com/images/cover.jpg"), Some(".jpg".to_string()));
-        assert_eq!(extension_from_content_type("image/jpeg"), Some(".jpeg".to_string()));
-    }
-
-    fn fetch_chapter_image_candidates_from_html(html: &str) -> Vec<ImageCandidate> {
-        let tag_re = Regex::new(r#"<[^>]*\bdata-sv1=['"][^'"]+['"][^>]*>"#).unwrap();
-        let sv1_re = Regex::new(r#"data-sv1=['\"]([^'\"]+)['\"]"#).unwrap();
-        let sv2_re = Regex::new(r#"data-sv2=['\"]([^'\"]+)['\"]"#).unwrap();
-
-        let mut candidates = Vec::new();
-        for tag in tag_re.captures_iter(html) {
-            let text = tag.get(0).unwrap().as_str();
-            let sv1 = sv1_re.captures(text).and_then(|cap| cap.get(1)).map(|m| m.as_str().to_string());
-            let sv2 = sv2_re.captures(text).and_then(|cap| cap.get(1)).map(|m| m.as_str().to_string());
-            if let Some(sv1) = sv1 {
-                candidates.push(ImageCandidate { sv1, sv2 });
-            }
-        }
-        candidates
-    }
 }

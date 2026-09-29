@@ -12,8 +12,8 @@ pub fn build_app() -> Router {
     let state = AppState::default();
     let crawl_router = Router::new()
         .route("/api/v1/crawl/nettruyen/comic", post(crawl_nettruyen_comic))
-        .route("/api/v1/crawl/nettruyen/comic/:slug/retry", post(retry_failed_chapters))
-        .route("/api/v1/crawl/progress/:comic_slug", get(progress_stream))
+        .route("/api/v1/crawl/nettruyen/comic/{slug}/retry", post(retry_failed_chapters))
+        .route("/api/v1/crawl/progress/{comic_slug}", get(progress_stream))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_crawl_api_key))
         .with_state(state.clone());
 

@@ -94,7 +94,7 @@ pub async fn progress_stream(
     State(state): State<AppState>,
     AxumPath(comic_slug): AxumPath<String>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, StatusCode> {
-    if !state.comic_exists_by_slug(&comic_slug) {
+    if !state.comic_exists_by_slug(&comic_slug).await {
         trace("crawl.progress.rejected.not-found", &[("comicSlug", comic_slug.clone())]);
         return Err(StatusCode::NOT_FOUND);
     }
@@ -117,7 +117,7 @@ async fn crawl_nettruyen_comic_impl(state: &AppState, slug_n_id: &str) -> Result
         return Ok(CrawlResult { status: 409, body: "Conflict".to_string() });
     }
 
-    if state.comic_exists_by_origin_path(slug_n_id) {
+    if state.comic_exists_by_origin_path(slug_n_id).await {
         trace("crawl.rejected.duplicate", &[("slugNId", slug_n_id.to_string())]);
         return Ok(CrawlResult { status: 409, body: "Conflict".to_string() });
     }
@@ -130,7 +130,7 @@ async fn crawl_nettruyen_comic_impl(state: &AppState, slug_n_id: &str) -> Result
         state.mark_active(&detail.slug);
 
         let chapter_stubs = fetch_chapter_list(&detail.slug, &detail.comic_id).await?;
-        let tag_ids = state.resolve_or_create_tags(&detail.genres);
+        let tag_ids = state.resolve_or_create_tags(&detail.genres).await;
         trace("crawl.metadata.fetched", &[
             ("slug", detail.slug.clone()),
             ("chapterCount", chapter_stubs.len().to_string()),
@@ -141,7 +141,7 @@ async fn crawl_nettruyen_comic_impl(state: &AppState, slug_n_id: &str) -> Result
         let mut thumb_image_id = None;
         if let Some(url) = &detail.thumbnail_url {
             let result = pull_and_store_image(url, "thumbnail", &detail.slug).await?;
-            let image_id = state.next_id("image_id_seq");
+            let image_id = state.next_id("image_id_seq").await;
             let image = crate::state::ImageRecord {
                 id: image_id,
                 chapter_id: None,
@@ -151,11 +151,11 @@ async fn crawl_nettruyen_comic_impl(state: &AppState, slug_n_id: &str) -> Result
                 origin_url: Some(url.clone()),
                 image_type: "THUMB".to_string(),
             };
-            state.insert_image(image);
+            state.insert_image(image).await;
             thumb_image_id = Some(image_id);
         }
 
-        let comic_id = state.next_id("comic_id_seq");
+        let comic_id = state.next_id("comic_id_seq").await;
         let comic = crate::state::ComicRecord {
             id: comic_id,
             slug: detail.slug.clone(),
@@ -170,12 +170,12 @@ async fn crawl_nettruyen_comic_impl(state: &AppState, slug_n_id: &str) -> Result
             origin_path_params: Some(slug_n_id.to_string()),
             thumb_image_id,
         };
-        state.insert_comic(comic);
+        state.insert_comic(comic).await;
         for tag_id in &tag_ids {
-            state.link_comic_tag(comic_id, *tag_id);
+            state.link_comic_tag(comic_id, *tag_id).await;
         }
         for stub in &chapter_stubs {
-            let chapter_id = state.next_id("chapter_id_seq");
+            let chapter_id = state.next_id("chapter_id_seq").await;
             let chapter = crate::state::ChapterRecord {
                 id: chapter_id,
                 comic_id,
@@ -185,9 +185,9 @@ async fn crawl_nettruyen_comic_impl(state: &AppState, slug_n_id: &str) -> Result
                 origin_url: stub.origin_url.clone(),
                 origin_path_params: stub.origin_path_params.clone(),
             };
-            state.insert_chapter(chapter);
+            state.insert_chapter(chapter).await;
         }
-        state.increment_comic_count(&tag_ids);
+        state.increment_comic_count(&tag_ids).await;
         trace("crawl.metadata.persisted", &[("slug", detail.slug.clone()), ("comicId", comic_id.to_string()), ("chapterCount", chapter_stubs.len().to_string())]);
 
         let inserted = state.get_chapters_for_comic(comic_id);
@@ -291,7 +291,7 @@ async fn run_chapter_crawl_loop(state: &AppState, comic_slug: &str, chapter_rows
 
             image_count = downloaded.len();
             for (position, file_name, file_path, origin_url) in downloaded {
-                let image_id = state.next_id("image_id_seq");
+                let image_id = state.next_id("image_id_seq").await;
                 let image = crate::state::ImageRecord {
                     id: image_id,
                     chapter_id: Some(chapter.id),
@@ -301,9 +301,9 @@ async fn run_chapter_crawl_loop(state: &AppState, comic_slug: &str, chapter_rows
                     origin_url: Some(origin_url),
                     image_type: "CHAPTER_IMAGE".to_string(),
                 };
-                state.insert_image(image);
+                state.insert_image(image).await;
             }
-            state.update_chapter_status(chapter.id, "9999");
+            state.update_chapter_status(chapter.id, "9999").await;
             Ok::<(), anyhow::Error>(())
         }
         .await

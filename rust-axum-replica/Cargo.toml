@@ -4,19 +4,19 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = { version = "0.7", features = ["macros", "json", "tokio"] }
+axum = { version = "0.8.9", features = ["macros", "json", "tokio"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13.5", features = ["json"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 regex = "1"
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
+dotenvy = "0.15"
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 tokio-stream = "0.1"
 futures-util = "0.3"
 url = "2"
-
-[dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
