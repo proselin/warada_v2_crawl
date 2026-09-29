@@ -1,1 +1,0 @@
-impl futures_util::Future<Output = std::option::Option<broadcaster::CrawlProgressEvent>>

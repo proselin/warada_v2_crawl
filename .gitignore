@@ -1,3 +1,8 @@
-# deps
-node_modules/
-.env
+.idea
+
+**/*/.env
+**/*/.env.local
+**/*/!.env.example
+!**/*/.env.example
+**/*/target
+**/*/.idea
