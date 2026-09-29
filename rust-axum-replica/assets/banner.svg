@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="500" viewBox="0 0 1500 500" fill="none">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1500" y2="500" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101827"/>
+      <stop offset="1" stop-color="#17243A"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFB454"/>
+      <stop offset="1" stop-color="#FF704D"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="1080" y1="115" x2="1370" y2="385" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#243650"/>
+      <stop offset="1" stop-color="#1A2940"/>
+    </linearGradient>
+    <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
+      <path d="M36 0H0V36" stroke="#9FB3CC" stroke-opacity=".07"/>
+    </pattern>
+    <filter id="shadow" x="1030" y="70" width="400" height="390" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#060B13" flood-opacity=".35"/>
+    </filter>
+  </defs>
+
+  <rect width="1500" height="500" rx="28" fill="url(#background)"/>
+  <rect width="1500" height="500" rx="28" fill="url(#grid)"/>
+  <circle cx="1285" cy="215" r="206" fill="#FF884F" fill-opacity=".08"/>
+  <circle cx="1285" cy="215" r="145" stroke="#FFAA64" stroke-opacity=".18"/>
+  <circle cx="1285" cy="215" r="104" stroke="#FFAA64" stroke-opacity=".13"/>
+
+  <path d="M0 418C265 350 422 526 696 454C858 412 968 355 1121 383C1272 410 1386 465 1500 428V500H0V418Z" fill="#0B1320" fill-opacity=".4"/>
+
+  <rect x="1054" y="93" width="326" height="314" rx="24" fill="url(#panel)" stroke="#7890AE" stroke-opacity=".23" filter="url(#shadow)"/>
+  <rect x="1078" y="117" width="278" height="28" rx="8" fill="#111B2A"/>
+  <circle cx="1096" cy="131" r="4" fill="#FF765C"/>
+  <circle cx="1110" cy="131" r="4" fill="#FFC15C"/>
+  <circle cx="1124" cy="131" r="4" fill="#5BC89A"/>
+  <rect x="1078" y="163" width="126" height="218" rx="12" fill="#152238" stroke="#8EA4C0" stroke-opacity=".12"/>
+  <rect x="1216" y="163" width="140" height="218" rx="12" fill="#152238" stroke="#8EA4C0" stroke-opacity=".12"/>
+  <path d="M1095 187H1179M1095 205H1161M1095 223H1183M1095 241H1145M1095 259H1173" stroke="#78A0C9" stroke-opacity=".58" stroke-width="5" stroke-linecap="round"/>
+  <path d="M1095 293H1164M1095 311H1180M1095 329H1147M1095 347H1170" stroke="#FFAA64" stroke-opacity=".75" stroke-width="5" stroke-linecap="round"/>
+  <path d="M1234 186H1338M1234 205H1321M1234 224H1342M1234 243H1309" stroke="#8097B3" stroke-opacity=".5" stroke-width="5" stroke-linecap="round"/>
+  <path d="M1234 282L1260 304L1294 269L1324 293L1340 279" stroke="url(#accent)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="1260" cy="304" r="5" fill="#FFB454"/>
+  <circle cx="1294" cy="269" r="5" fill="#FFB454"/>
+  <circle cx="1324" cy="293" r="5" fill="#FFB454"/>
+  <path d="M1234 339H1287M1234 357H1319" stroke="#8097B3" stroke-opacity=".35" stroke-width="5" stroke-linecap="round"/>
+
+  <rect x="112" y="108" width="54" height="5" rx="2.5" fill="url(#accent)"/>
+  <text x="112" y="164" fill="#A8B8CC" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="17" font-weight="700" letter-spacing="4">WARADA  /  CRAWL</text>
+  <text x="108" y="250" fill="#F5F7FA" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="64" font-weight="750" letter-spacing="-2">Rust Axum</text>
+  <text x="108" y="320" fill="#F5F7FA" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="64" font-weight="750" letter-spacing="-2">Replica</text>
+  <text x="112" y="367" fill="#B6C3D3" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="450">An async API for comic crawling and progress streaming</text>
+
+  <rect x="112" y="405" width="89" height="32" rx="16" fill="#29384B"/>
+  <text x="156.5" y="426" fill="#E8EDF4" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="650" text-anchor="middle">RUST</text>
+  <rect x="211" y="405" width="89" height="32" rx="16" fill="#29384B"/>
+  <text x="255.5" y="426" fill="#E8EDF4" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="650" text-anchor="middle">AXUM</text>
+  <rect x="310" y="405" width="132" height="32" rx="16" fill="#29384B"/>
+  <text x="376" y="426" fill="#E8EDF4" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="650" text-anchor="middle">TOKIO</text>
+</svg>
