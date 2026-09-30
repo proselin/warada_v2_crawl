@@ -6,3 +6,9 @@
 !**/*/.env.example
 **/*/target
 **/*/.idea
+
+target
+.idea
+.env
+.env.local
+runtime

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in</title>
+</head>
+<body>
+  <main>
+    <h1>Sign in</h1>
+    <p>{{CLIENT_NAME}}</p>
+    <p>Requested access: {{SCOPES}}</p>
+    <form method="post" action="/oauth/authorize">
+      <input type="hidden" name="csrf" value="{{CSRF}}">
+      <input type="hidden" name="response_type" value="{{RESPONSE_TYPE}}">
+      <input type="hidden" name="client_id" value="{{CLIENT_ID}}">
+      <input type="hidden" name="redirect_uri" value="{{REDIRECT_URI}}">
+      <input type="hidden" name="state" value="{{STATE}}">
+      <input type="hidden" name="code_challenge" value="{{CODE_CHALLENGE}}">
+      <input type="hidden" name="code_challenge_method" value="{{CODE_CHALLENGE_METHOD}}">
+      <input type="hidden" name="scope" value="{{SCOPES}}">
+      <label>Email <input name="email" type="email" autocomplete="username" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <label><input name="consent" type="checkbox" value="approve" required> Approve access</label>
+      <button type="submit">Continue</button>
+    </form>
+  </main>
+</body>
+</html>

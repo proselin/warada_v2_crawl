@@ -34,8 +34,8 @@ pub async fn crawl_nettruyen_comic(
     State(state): State<AppState>,
     req: axum::http::Request<Body>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    let started_at = Instant::now();
-    let body_bytes = match axum::body::to_bytes(req.into_body(), usize::MAX).await {
+    let started_at: Instant = Instant::now();
+    let body_bytes: axum::body::Bytes = match axum::body::to_bytes(req.into_body(), usize::MAX).await {
         Ok(bytes) => bytes,
         Err(err) => {
             trace_error("crawl.request.rejected.invalid-json", &err, &[]);

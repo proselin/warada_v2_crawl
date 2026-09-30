@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
 
 use crate::broadcaster::Broadcaster;
 use crate::db::Database;
@@ -70,8 +72,10 @@ pub struct TagRecord {
 
 impl AppState {
     pub async fn next_id(&self, sequence: &str) -> i64 {
-        if let Some(id) = self.shared.database.next_id(sequence).await {
-            return id;
+        if self.shared.database.is_enabled() {
+            if let Some(id) = time_database_operation("next_id", self.shared.database.next_id(sequence)).await {
+                return id;
+            }
         }
         let mut seq = self.shared.sequences.lock().unwrap();
         let next = seq.entry(sequence.to_string()).or_insert(1);
@@ -93,15 +97,19 @@ impl AppState {
     }
 
     pub async fn comic_exists_by_slug(&self, slug: &str) -> bool {
-        if let Some(exists) = self.shared.database.comic_exists_by_slug(slug).await {
-            return exists;
+        if self.shared.database.is_enabled() {
+            if let Some(exists) = time_database_operation("comic_exists_by_slug", self.shared.database.comic_exists_by_slug(slug)).await {
+                return exists;
+            }
         }
         self.shared.comics.read().unwrap().contains_key(slug)
     }
 
     pub async fn comic_exists_by_origin_path(&self, slug_n_id: &str) -> bool {
-        if let Some(exists) = self.shared.database.comic_exists_by_origin_path(slug_n_id).await {
-            return exists;
+        if self.shared.database.is_enabled() {
+            if let Some(exists) = time_database_operation("comic_exists_by_origin_path", self.shared.database.comic_exists_by_origin_path(slug_n_id)).await {
+                return exists;
+            }
         }
         self.shared
             .comics
@@ -113,28 +121,28 @@ impl AppState {
 
     pub async fn insert_comic(&self, comic: ComicRecord) {
         if self.shared.database.is_enabled() {
-            let _ = self.shared.database.insert_comic(&comic).await;
+            let _ = time_database_operation("insert_comic", self.shared.database.insert_comic(&comic)).await;
         }
         self.shared.comics.write().unwrap().insert(comic.slug.clone(), comic);
     }
 
     pub async fn insert_chapter(&self, chapter: ChapterRecord) {
         if self.shared.database.is_enabled() {
-            let _ = self.shared.database.insert_chapter(&chapter).await;
+            let _ = time_database_operation("insert_chapter", self.shared.database.insert_chapter(&chapter)).await;
         }
         self.shared.chapters.write().unwrap().insert(chapter.id, chapter);
     }
 
     pub async fn insert_image(&self, image: ImageRecord) {
         if self.shared.database.is_enabled() {
-            let _ = self.shared.database.insert_image(&image).await;
+            let _ = time_database_operation("insert_image", self.shared.database.insert_image(&image)).await;
         }
         self.shared.images.write().unwrap().insert(image.id, image);
     }
 
     pub async fn update_chapter_status(&self, chapter_id: i64, crawling_status: &str) {
         if self.shared.database.is_enabled() {
-            let _ = self.shared.database.update_chapter_status(chapter_id, crawling_status).await;
+            let _ = time_database_operation("update_chapter_status", self.shared.database.update_chapter_status(chapter_id, crawling_status)).await;
         }
         let mut chapters = self.shared.chapters.write().unwrap();
         if let Some(chapter) = chapters.get_mut(&chapter_id) {
@@ -144,7 +152,7 @@ impl AppState {
 
     pub async fn resolve_or_create_tags(&self, names: &[String]) -> Vec<i64> {
         if self.shared.database.is_enabled() {
-            if let Some(ids) = self.shared.database.resolve_or_create_tags(names).await {
+            if let Some(ids) = time_database_operation("resolve_or_create_tags", self.shared.database.resolve_or_create_tags(names)).await {
                 return ids;
             }
         }
@@ -185,7 +193,7 @@ impl AppState {
 
     pub async fn increment_comic_count(&self, tag_ids: &[i64]) {
         if self.shared.database.is_enabled() {
-            let _ = self.shared.database.increment_comic_count(tag_ids).await;
+            let _ = time_database_operation("increment_comic_count", self.shared.database.increment_comic_count(tag_ids)).await;
         }
         if tag_ids.is_empty() {
             return;
@@ -200,7 +208,7 @@ impl AppState {
 
     pub async fn link_comic_tag(&self, comic_id: i64, tag_id: i64) {
         if self.shared.database.is_enabled() {
-            let _ = self.shared.database.link_comic_tag(comic_id, tag_id).await;
+            let _ = time_database_operation("link_comic_tag", self.shared.database.link_comic_tag(comic_id, tag_id)).await;
         }
         let mut map = self.shared.comic_tags.write().unwrap();
         map.entry(comic_id).or_default().insert(tag_id);
@@ -216,6 +224,23 @@ impl AppState {
             .cloned()
             .collect()
     }
+}
+
+async fn time_database_operation<T>(
+    operation: &'static str,
+    action: impl Future<Output = Option<T>>,
+) -> Option<T> {
+    let started_at = Instant::now();
+    let result = action.await;
+    tracing::info!(
+        target: "performance",
+        operation = %operation,
+        request_id = crate::logging::REQUEST_ID.try_with(|id| *id).ok(),
+        success = result.is_some(),
+        duration_ms = started_at.elapsed().as_millis() as u64,
+        "database operation completed"
+    );
+    result
 }
 
 pub fn normalize_tag_name(name: &str) -> String {

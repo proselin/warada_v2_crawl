@@ -1,8 +1,8 @@
 use axum::body::Body;
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{Request, StatusCode};
-use axum_replica::app::build_app;
-use axum_replica::config::{nettruyen_url, preflight_checks};
+use comic_crawler::app::build_app;
+use comic_crawler::config::{nettruyen_url, preflight_checks};
 use tower::util::ServiceExt;
 
 use super::common::{ENV_LOCK, restore_env};

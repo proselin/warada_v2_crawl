@@ -1,4 +1,4 @@
-use axum_replica::broadcaster::{Broadcaster, CrawlProgressData, CrawlProgressEvent};
+use comic_crawler::broadcaster::{Broadcaster, CrawlProgressData, CrawlProgressEvent};
 
 #[test]
 fn broadcaster_only_delivers_to_matching_comic_slug() {

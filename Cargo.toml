@@ -1,2 +1,3 @@
 [workspace]
-members = ["comic-crawler"]
+members = ["comic-crawler", "auth-service"]
+resolver = "3"

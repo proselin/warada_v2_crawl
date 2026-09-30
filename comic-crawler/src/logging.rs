@@ -3,6 +3,10 @@ use std::fmt::Display;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+tokio::task_local! {
+    pub(crate) static REQUEST_ID: u64;
+}
+
 pub fn trace(event: &str, extra: &[(&str, String)]) {
     if extra.is_empty() {
         info!(event);

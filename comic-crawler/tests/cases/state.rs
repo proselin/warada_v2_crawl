@@ -1,4 +1,4 @@
-use axum_replica::state::{AppState, ChapterRecord, ComicRecord, normalize_tag_name};
+use comic_crawler::state::{AppState, ChapterRecord, ComicRecord, normalize_tag_name};
 
 #[tokio::test]
 async fn state_tracks_tags_comics_chapters_and_active_slugs() {

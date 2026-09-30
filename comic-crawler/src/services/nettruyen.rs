@@ -1,4 +1,6 @@
+use std::future::Future;
 use std::fs;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use chrono::{Datelike, Timelike};
@@ -42,11 +44,14 @@ pub struct ImageCandidate {
 
 pub async fn extract_comic_detail(slug_n_id: &str) -> Result<ExtractedComicDetail> {
     let url = format!("{}/truyen-tranh/{}", nettruyen_url(), slug_n_id);
-    let response = reqwest::get(&url).await.context("fetch comic page")?;
-    if !response.status().is_success() {
-        anyhow::bail!("Failed to fetch comic page {}: HTTP {}", url, response.status());
-    }
-    let html = response.text().await?;
+    let html = time_external_operation("nettruyen.comic_page", async {
+        let response = reqwest::get(&url).await.context("fetch comic page")?;
+        if !response.status().is_success() {
+            anyhow::bail!("Failed to fetch comic page {}: HTTP {}", url, response.status());
+        }
+        Ok(response.text().await?)
+    })
+    .await?;
 
     let slug = extract_regex_group(&html, r#"gOpts\.comicSlug\s*=\s*['\"]([^'\"]+)['\"]"#, "comicSlug")?;
     let comic_id = extract_regex_group(&html, r#"gOpts\.comicId\s*=\s*['\"]?(\d+)['\"]?"#, "comicId")?;
@@ -125,11 +130,14 @@ pub async fn fetch_chapter_list(slug: &str, comic_id: &str) -> Result<Vec<Extrac
         "{}/Comic/Services/ComicService.asmx/ChapterList?slug={slug}&comicId={comic_id}",
         nettruyen_url()
     );
-    let response = reqwest::get(&url).await?;
-    if !response.status().is_success() {
-        anyhow::bail!("Failed to fetch chapter list for {}: HTTP {}", slug, response.status());
-    }
-    let payload: Value = response.json().await?;
+    let payload: Value = time_external_operation("nettruyen.chapter_list", async {
+        let response = reqwest::get(&url).await?;
+        if !response.status().is_success() {
+            anyhow::bail!("Failed to fetch chapter list for {}: HTTP {}", slug, response.status());
+        }
+        Ok(response.json().await?)
+    })
+    .await?;
     let mut items = Vec::new();
     if let Some(data) = payload.get("data").and_then(|v| v.as_array()) {
         for item in data {
@@ -152,11 +160,14 @@ pub async fn fetch_chapter_list(slug: &str, comic_id: &str) -> Result<Vec<Extrac
 }
 
 pub async fn fetch_chapter_image_candidates(origin_url: &str) -> Result<Vec<ImageCandidate>> {
-    let response = reqwest::get(origin_url).await?;
-    if !response.status().is_success() {
-        anyhow::bail!("Failed to fetch chapter page {}: HTTP {}", origin_url, response.status());
-    }
-    let html = response.text().await?;
+    let html = time_external_operation("nettruyen.chapter_page", async {
+        let response = reqwest::get(origin_url).await?;
+        if !response.status().is_success() {
+            anyhow::bail!("Failed to fetch chapter page {}: HTTP {}", origin_url, response.status());
+        }
+        Ok(response.text().await?)
+    })
+    .await?;
     Ok(extract_chapter_image_candidates(&html))
 }
 
@@ -179,30 +190,34 @@ pub fn extract_chapter_image_candidates(html: &str) -> Vec<ImageCandidate> {
 
 pub async fn download_image(url: &str) -> Result<DownloadedImage> {
     let client = reqwest::Client::new();
-    let response = client
-        .get(url)
-        .header("Origin", nettruyen_url())
-        .header("Referer", nettruyen_url())
-        .header("Accept", "*/*")
-        .header("Content-Type", "application/octet-stream")
-        .header("Access-Control-Allow-Origin", "*")
-        .header("sec-fetch-mode", "cors")
-        .header("sec-fetch-dest", "empty")
-        .header("sec-fetch-site", "cross-site")
-        .send()
-        .await?;
+    let (content_type, buffer) = time_external_operation("image.download", async {
+        let response = client
+            .get(url)
+            .header("Origin", nettruyen_url())
+            .header("Referer", nettruyen_url())
+            .header("Accept", "*/*")
+            .header("Content-Type", "application/octet-stream")
+            .header("Access-Control-Allow-Origin", "*")
+            .header("sec-fetch-mode", "cors")
+            .header("sec-fetch-dest", "empty")
+            .header("sec-fetch-site", "cross-site")
+            .send()
+            .await?;
 
-    if !response.status().is_success() {
-        anyhow::bail!("Failed to download image {}: HTTP {}", url, response.status());
-    }
+        if !response.status().is_success() {
+            anyhow::bail!("Failed to download image {}: HTTP {}", url, response.status());
+        }
 
-    let content_type: String = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/octet-stream")
-        .to_string();
-    let buffer = response.bytes().await?.to_vec();
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        let buffer = response.bytes().await?.to_vec();
+        Ok((content_type, buffer))
+    })
+    .await?;
     let extension = extension_from_url(url)
         .or_else(|| extension_from_content_type(&content_type))
         .unwrap_or_else(|| ".bin".to_string());
@@ -237,16 +252,26 @@ pub async fn download_chapter_image(candidate: &ImageCandidate) -> Result<Downlo
 }
 
 pub async fn put_temp_object(file_name: &str, bytes: &[u8], _content_type: &str) -> Result<String> {
+    let started_at = std::time::Instant::now();
     let dir = image_storage_dir().join("temp");
     fs::create_dir_all(&dir).context("create temp dir")?;
     let target = dir.join(file_name);
     fs::write(&target, bytes).context("write temp object")?;
     let relative = format!("temp/{}", file_name);
-    tracing::info!("image.local.temp.write path={} bytes={}", relative, bytes.len());
+    tracing::info!(
+        target: "performance",
+        operation = "storage.local.put_temp",
+        request_id = crate::logging::REQUEST_ID.try_with(|id| *id).ok(),
+        path = %relative,
+        bytes = bytes.len(),
+        duration_ms = started_at.elapsed().as_millis() as u64,
+        "storage operation completed"
+    );
     Ok(relative)
 }
 
 pub async fn rename_to_permanent(temp_path: &str, permanent_path: &str) -> Result<()> {
+    let started_at = std::time::Instant::now();
     let root: std::path::PathBuf = image_storage_dir();
     let temp: std::path::PathBuf = root.join(temp_path);
     let permanent: std::path::PathBuf = root.join(permanent_path);
@@ -256,8 +281,33 @@ pub async fn rename_to_permanent(temp_path: &str, permanent_path: &str) -> Resul
     if temp.exists() {
         fs::rename(&temp, &permanent).context("rename temp to permanent")?;
     }
-    tracing::info!("image.local.promoted from={} to={}", temp_path, permanent_path);
+    tracing::info!(
+        target: "performance",
+        operation = "storage.local.promote",
+        request_id = crate::logging::REQUEST_ID.try_with(|id| *id).ok(),
+        from = %temp_path,
+        to = %permanent_path,
+        duration_ms = started_at.elapsed().as_millis() as u64,
+        "storage operation completed"
+    );
     Ok(())
+}
+
+async fn time_external_operation<T>(
+    operation: &'static str,
+    action: impl Future<Output = Result<T>>,
+) -> Result<T> {
+    let started_at = Instant::now();
+    let result = action.await;
+    tracing::info!(
+        target: "performance",
+        operation = %operation,
+        request_id = crate::logging::REQUEST_ID.try_with(|id| *id).ok(),
+        success = result.is_ok(),
+        duration_ms = started_at.elapsed().as_millis() as u64,
+        "external operation completed"
+    );
+    result
 }
 
 pub fn timestamp_tag() -> String {

@@ -1,4 +1,4 @@
-use axum_replica::services::nettruyen::{put_temp_object, rename_to_permanent};
+use comic_crawler::services::nettruyen::{put_temp_object, rename_to_permanent};
 
 use super::common::ENV_LOCK;
 

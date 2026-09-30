@@ -1,4 +1,4 @@
-use axum_replica::services::nettruyen::{
+use comic_crawler::services::nettruyen::{
     extension_from_content_type, extension_from_url, extract_chapter_image_candidates,
     extract_regex_group, find_comic_series_node,
 };

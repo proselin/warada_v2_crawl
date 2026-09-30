@@ -1,5 +1,5 @@
 [package]
-name = "comic-crawler"
+name = "comic_crawler"
 version = "0.1.0"
 edition = "2024"
 
@@ -20,3 +20,5 @@ tokio-stream = "0.1"
 futures-util = "0.3"
 url = "2"
 tower = { version = "0.5", features = ["util"] }
+libc = "0.2"
+sysinfo = "0.37"
