@@ -14,8 +14,10 @@ pub struct CrawlProgressEvent {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CrawlProgressData {
-    pub chapter_id: i64,
-    pub chapter_number: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chapter_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chapter_number: Option<String>,
     pub status: Option<String>,
     pub comic_slug: String,
 }

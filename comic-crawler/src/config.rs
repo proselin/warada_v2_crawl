@@ -74,6 +74,14 @@ pub async fn preflight_checks() -> Result<(), String> {
     let (client, connection) = tokio_postgres::connect(&database_url, tokio_postgres::NoTls)
         .await
         .map_err(|err| format!("Unable to connect to PostgreSQL at DATABASE_URL: {err}"))?;
+    let queue_table = client
+        .query_one("SELECT to_regclass('public.crawl_jobs')::text", &[])
+        .await
+        .map_err(|err| format!("Unable to inspect crawl queue schema: {err}"))?
+        .get::<_, Option<String>>(0);
+    if queue_table.is_none() {
+        return Err("Database is not initialized; run migrations/0001_init_database.sql".to_string());
+    }
     tokio::spawn(async move {
         if let Err(err) = connection.await {
             tracing::warn!(error = %err, "postgres_connection_task_exited");

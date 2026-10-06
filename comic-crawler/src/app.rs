@@ -15,7 +15,10 @@ use crate::state::AppState;
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 pub fn build_app() -> Router {
-    let state = AppState::default();
+    build_app_with_state(AppState::default())
+}
+
+pub fn build_app_with_state(state: AppState) -> Router {
     let crawl_router = Router::new()
         .route("/api/v1/crawl/nettruyen/comic", post(crawl_nettruyen_comic))
         .route("/api/v1/crawl/nettruyen/comic/{slug}/retry", post(retry_failed_chapters))
@@ -28,6 +31,10 @@ pub fn build_app() -> Router {
         .merge(crawl_router)
         .layer(middleware::from_fn(log_request_performance))
         .with_state(state)
+}
+
+pub fn spawn_crawl_queue_worker(state: AppState) {
+    tokio::spawn(crate::routes::crawl::run_crawl_queue_worker(state));
 }
 
 async fn log_request_performance(req: Request<Body>, next: Next) -> Response {

@@ -88,6 +88,10 @@ impl AppState {
         self.shared.active_slugs.lock().unwrap().contains(slug)
     }
 
+    pub fn try_mark_active(&self, slug: &str) -> bool {
+        self.shared.active_slugs.lock().unwrap().insert(slug.to_string())
+    }
+
     pub fn mark_active(&self, slug: &str) {
         self.shared.active_slugs.lock().unwrap().insert(slug.to_string());
     }

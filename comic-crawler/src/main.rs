@@ -1,8 +1,9 @@
 use tracing::info;
 
-use comic_crawler::app::build_app;
+use comic_crawler::app::{build_app_with_state, spawn_crawl_queue_worker};
 use comic_crawler::config::preflight_checks;
 use comic_crawler::logging::init_logging;
+use comic_crawler::state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -24,7 +25,9 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let app = build_app();
+    let state = AppState::default();
+    spawn_crawl_queue_worker(state.clone());
+    let app = build_app_with_state(state);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
 
     info!("server.starting port={}", 3000);
