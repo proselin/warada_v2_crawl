@@ -60,6 +60,8 @@ settings for both branches.
 
 CI artifacts include the Rust test log, UI and E2E JUnit XML, the Playwright
 HTML report and failure traces, and the Rust LLVM coverage HTML/JSON reports.
+GitHub Actions caches Rust registry/build data and lockfile-keyed `node_modules`
+for faster subsequent runs.
 
 ## Change rules
 

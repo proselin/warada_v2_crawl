@@ -14,7 +14,7 @@ test("gateway serves the dashboard and both federation remotes", async ({ page }
   );
   const uiKitRemote = page.waitForResponse(
     (response) =>
-      response.url().includes("/remotes/ui-kit/mf/remoteEntry.js") &&
+      response.url().includes("/remotes/ui-kit/remoteEntry.js") &&
       response.status() === 200,
   );
 

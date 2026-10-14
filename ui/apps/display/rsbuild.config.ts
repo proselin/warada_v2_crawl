@@ -12,7 +12,7 @@ const uiKitManifest =
 export default defineConfig({
   source: {
     entry: {
-      index: "./src/main.tsx",
+      index: "./src/bootstrap.tsx",
     },
   },
   html: {
