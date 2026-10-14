@@ -17,7 +17,7 @@ const temp = mkdtempSync(join(tmpdir(), "warada-e2e-"));
 const jwtDir = join(temp, "jwt");
 const adminKey = randomBytes(32).toString("hex");
 const crawlKey = randomBytes(32).toString("hex");
-let dockerAvailable = false;
+let isManagerAvailable = false;
 const { privateKey, publicKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
   privateKeyEncoding: { type: "pkcs8", format: "pem" },
@@ -66,20 +66,22 @@ function compose(...args) {
   return ["compose", "--env-file", envFile, "--project-name", project, "-f", "infra/compose.yaml", ...args];
 }
 
-try {
-  const docker = spawnSync("docker", ["compose", "version"], {
+ const containerHandlerCmd = "podman";
+
+try { 
+  const containerManager = spawnSync(containerHandlerCmd, ["compose", "version"], {
     cwd: root,
     stdio: "inherit",
   });
-  if (docker.error || docker.status !== 0) {
-    throw new Error("Docker Compose is required to run E2E tests");
+  if (containerManager.error || containerManager.status !== 0) {
+    throw new Error(`${containerHandlerCmd} Compose is required to run E2E tests`);
   }
-  dockerAvailable = true;
+  isManagerAvailable = true;
 
   console.log(`Starting isolated system stack on http://127.0.0.1:${port}`);
   const useBuiltImages = process.env.E2E_USE_BUILT_IMAGES === "true";
   await run(
-    "docker",
+    containerHandlerCmd,
     compose(
       "up",
       useBuiltImages ? "--no-build" : "--build",
@@ -90,7 +92,7 @@ try {
     ),
   );
   await run(
-    "docker",
+    containerHandlerCmd,
     compose(
       "exec",
       "-T",
@@ -112,9 +114,9 @@ try {
     },
   });
 } finally {
-  if (dockerAvailable) {
+  if (isManagerAvailable) {
     console.log("Removing isolated E2E containers and database volume");
-    await run("docker", compose("down", "--volumes", "--remove-orphans")).catch((error) => {
+    await run(containerHandlerCmd, compose("down", "--volumes", "--remove-orphans")).catch((error) => {
       console.error(error.message);
     });
   }

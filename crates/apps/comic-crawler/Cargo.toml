@@ -18,9 +18,9 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 dotenvy = "0.15"
 tokio-stream = "0.1"
-tokio-rusqlite = "0.7"
+tokio-rusqlite = "0.8"
 futures-util = "0.3"
 url = "2"
 tower = { version = "0.5", features = ["util"] }
 libc = "0.2"
-sysinfo = "0.37"
+sysinfo = "0.39"

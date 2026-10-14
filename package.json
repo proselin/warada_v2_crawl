@@ -9,7 +9,7 @@
     "check": "moon run warada:check && npm run typecheck:ui && npm run typecheck:e2e && npm run build:frontend",
     "test": "moon run warada:test && moon run ui-kit:test",
     "test:e2e": "node e2e/helpers/run.mjs",
-    "ci:local": "npm run check && npm test && E2E_PORT=${E2E_PORT:-18080} GATEWAY_PORT=${E2E_PORT:-18080} PUBLIC_BASE_URL=http://127.0.0.1:${E2E_PORT:-18080} docker compose --env-file infra/.env.example -f infra/compose.yaml build && E2E_USE_BUILT_IMAGES=true npm run test:e2e",
+    "ci:local": "npm run check && npm test && E2E_PORT=${E2E_PORT:-18080} GATEWAY_PORT=${E2E_PORT:-18080} PUBLIC_BASE_URL=http://127.0.0.1:${E2E_PORT:-18080} podman compose --env-file infra/.env.example -f infra/compose.yaml build && E2E_USE_BUILT_IMAGES=true npm run test:e2e",
     "build": "npm run build:all",
     "build:frontend": "moon run ui-kit:build && moon run activity-remote:build && moon run display-host:build",
     "build:all": "moon run warada:build && npm run build:frontend",
