@@ -32,5 +32,6 @@ npm run test:e2e
 npm run build:all
 ```
 
-E2E structure and commands are documented in `e2e/README.md`. Infrastructure
-setup and operations are in `infra/README.md`.
+Start with the [architecture](docs/architecture.md) and
+[development guide](docs/development.md). The [documentation index](docs/README.md)
+links the E2E structure and infrastructure operations guides.
