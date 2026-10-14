@@ -257,6 +257,7 @@ jobs:
           name: build-and-test-${{ github.run_id }}
           path: |
             test-reports/
+            ui/libs/ui-kit/test-reports/
             target/release/auth_service
             target/release/comic_crawler
             target/release/display_service
@@ -320,6 +321,7 @@ jobs:
         if: needs.changes.outputs.release == 'true'
         run: |
           npm ci
+          mkdir -p test-reports
           npx playwright install --with-deps chromium
           npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
       - name: Save built images as an artifact
@@ -341,6 +343,7 @@ jobs:
           name: container-images-and-e2e-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/container-images.tar
+            test-reports/
             playwright-report/
             test-results/
             ${{ runner.temp }}/e2e-test.log

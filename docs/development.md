@@ -58,6 +58,9 @@ workflow artifacts. The pipeline publishes images but does not deploy them to
 hosts. Require the `checks` status check and pull requests in branch protection
 settings for both branches.
 
+CI artifacts include the Rust test log, UI and E2E JUnit XML, the Playwright
+HTML report and failure traces, and the Rust LLVM coverage HTML/JSON reports.
+
 ## Change rules
 
 1. Read the relevant source, configuration, and tests before choosing an

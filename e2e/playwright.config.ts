@@ -6,7 +6,11 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: process.env.CI
-    ? [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]]
+    ? [
+        ["list"],
+        ["html", { outputFolder: "playwright-report", open: "never" }],
+        ["junit", { outputFile: "test-reports/e2e-test.xml" }],
+      ]
     : "list",
   use: {
     baseURL: e2eBaseUrl,
