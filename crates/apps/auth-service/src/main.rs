@@ -120,3 +120,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 async fn health() -> &'static str {
     "ok"
 }
+
+#[cfg(test)]
+mod test_support;
+
+#[cfg(test)]
+#[path = "../tests/auth.rs"]
+mod tests;

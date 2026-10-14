@@ -259,3 +259,282 @@ pub(crate) async fn deactivate_client(
     }
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::test_support::app_state;
+
+    fn admin_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            "Bearer test-admin-key-with-more-than-32-bytes"
+                .parse()
+                .unwrap(),
+        );
+        headers
+    }
+
+    #[tokio::test]
+    async fn user_management_validates_and_updates_accounts() {
+        let state = app_state().await;
+        let headers = admin_headers();
+        assert_eq!(
+            list_users(State(state.clone()), HeaderMap::new())
+                .await
+                .err()
+                .unwrap(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            list_users(State(state.clone()), headers.clone())
+                .await
+                .unwrap()
+                .0
+                .len(),
+            1
+        );
+        assert_eq!(
+            get_user(
+                State(state.clone()),
+                headers.clone(),
+                Path("missing".into())
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::NOT_FOUND
+        );
+
+        let (status, Json(created)) = create_user(
+            State(state.clone()),
+            headers.clone(),
+            Json(CreateUser {
+                email: " New@Example.test ".to_owned(),
+                password: "long enough test password".to_owned(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(created.email, "new@example.test");
+        assert!(created.active);
+        assert_eq!(
+            create_user(
+                State(state.clone()),
+                headers.clone(),
+                Json(CreateUser {
+                    email: "new@example.test".to_owned(),
+                    password: "long enough test password".to_owned(),
+                }),
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            create_user(
+                State(state.clone()),
+                headers.clone(),
+                Json(CreateUser {
+                    email: "invalid".to_owned(),
+                    password: "short".to_owned(),
+                }),
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let fetched = get_user(
+            State(state.clone()),
+            headers.clone(),
+            Path(created.id.clone()),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(fetched.email, "new@example.test");
+        assert_eq!(
+            update_user(
+                State(state.clone()),
+                headers.clone(),
+                Path(created.id.clone()),
+                Json(UpdateUser {
+                    email: None,
+                    password: None,
+                    active: None,
+                }),
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::BAD_REQUEST
+        );
+        let updated = update_user(
+            State(state.clone()),
+            headers.clone(),
+            Path(created.id.clone()),
+            Json(UpdateUser {
+                email: Some("renamed@example.test".to_owned()),
+                password: Some("another long test password".to_owned()),
+                active: Some(false),
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(updated.email, "renamed@example.test");
+        assert!(!updated.active);
+        assert_eq!(
+            update_user(
+                State(state.clone()),
+                headers.clone(),
+                Path(created.id.clone()),
+                Json(UpdateUser {
+                    email: Some("bad".to_owned()),
+                    password: None,
+                    active: None,
+                }),
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            deactivate_user(
+                State(state.clone()),
+                headers.clone(),
+                Path("missing".into())
+            )
+            .await
+            .unwrap_err(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            deactivate_user(State(state), headers, Path(created.id))
+                .await
+                .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+    }
+
+    #[tokio::test]
+    async fn service_client_management_enforces_scopes_and_activity() {
+        let state = app_state().await;
+        let headers = admin_headers();
+        assert_eq!(
+            list_clients(State(state.clone()), headers.clone())
+                .await
+                .unwrap()
+                .0
+                .len(),
+            1
+        );
+        let (status, Json(created)) = create_client(
+            State(state.clone()),
+            headers.clone(),
+            Json(CreateClient {
+                client_id: "new-client".to_owned(),
+                scopes: Some(vec!["api:write".to_owned(), "api:read".to_owned()]),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(created.scopes, vec!["api:read", "api:write"]);
+        assert_eq!(
+            create_client(
+                State(state.clone()),
+                headers.clone(),
+                Json(CreateClient {
+                    client_id: "new-client".to_owned(),
+                    scopes: None,
+                }),
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            create_client(
+                State(state.clone()),
+                headers.clone(),
+                Json(CreateClient {
+                    client_id: "x".to_owned(),
+                    scopes: None,
+                }),
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            update_client(
+                State(state.clone()),
+                headers.clone(),
+                Path("new-client".to_owned()),
+                Json(UpdateClient {
+                    scopes: None,
+                    active: None,
+                }),
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::BAD_REQUEST
+        );
+        let updated = update_client(
+            State(state.clone()),
+            headers.clone(),
+            Path("new-client".to_owned()),
+            Json(UpdateClient {
+                scopes: Some(vec!["api:write".to_owned()]),
+                active: Some(false),
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(updated.scopes, "api:write");
+        assert!(!updated.active);
+        assert_eq!(
+            update_client(
+                State(state.clone()),
+                headers.clone(),
+                Path("missing".to_owned()),
+                Json(UpdateClient {
+                    scopes: None,
+                    active: Some(true),
+                }),
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            deactivate_client(
+                State(state.clone()),
+                headers.clone(),
+                Path("missing".into())
+            )
+            .await
+            .unwrap_err(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            deactivate_client(State(state), headers, Path("new-client".into()))
+                .await
+                .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+    }
+}

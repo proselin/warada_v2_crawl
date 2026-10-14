@@ -519,3 +519,279 @@ pub(crate) fn render_template(template: &str, values: &[(&str, String)]) -> Stri
     rendered.push_str(remaining);
     rendered
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::test_support::app_state;
+
+    fn admin_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            "Bearer test-admin-key-with-more-than-32-bytes"
+                .parse()
+                .unwrap(),
+        );
+        headers
+    }
+
+    fn authorize_request(challenge: String) -> AuthorizeRequest {
+        AuthorizeRequest {
+            response_type: "code".to_owned(),
+            client_id: "public".to_owned(),
+            redirect_uri: "https://app.example/callback".to_owned(),
+            state: "state-1".to_owned(),
+            code_challenge: Some(challenge),
+            code_challenge_method: Some("S256".to_owned()),
+            scope: Some("api:read".to_owned()),
+        }
+    }
+
+    #[test]
+    fn scope_requests_and_client_identifiers_are_validated() {
+        let allowed = vec!["api:read".to_owned(), "api:write".to_owned()];
+        assert_eq!(requested_scopes(None, &allowed).unwrap(), allowed);
+        assert_eq!(
+            requested_scopes(Some("api:write api:read api:read".to_owned()), &allowed).unwrap(),
+            vec!["api:read", "api:write"]
+        );
+        assert_eq!(
+            requested_scopes(Some("api:admin".to_owned()), &allowed).unwrap_err(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            requested_scopes(Some(" ".to_owned()), &allowed).unwrap_err(),
+            StatusCode::BAD_REQUEST
+        );
+        assert!(validate_client_id("client-01").is_ok());
+        assert!(validate_client_id("ab").is_err());
+        assert!(validate_client_id("invalid client").is_err());
+        assert!(valid_code_challenge(&pkce_challenge(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
+        )));
+        assert!(!valid_code_challenge("not-a-challenge"));
+    }
+
+    #[tokio::test]
+    async fn public_client_authorization_and_code_exchange_work() {
+        let state = app_state().await;
+        let (status, Json(client)) = create_public_client(
+            State(state.clone()),
+            admin_headers(),
+            Json(CreatePublicClient {
+                client_id: "browser-client".to_owned(),
+                redirect_uri: "https://browser.example/callback".to_owned(),
+                scopes: None,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(client.scopes, vec!["api:read"]);
+        assert_eq!(
+            create_public_client(
+                State(state.clone()),
+                admin_headers(),
+                Json(CreatePublicClient {
+                    client_id: "browser-client".to_owned(),
+                    redirect_uri: "https://browser.example/callback".to_owned(),
+                    scopes: None,
+                }),
+            )
+            .await
+            .err(),
+            Some(StatusCode::CONFLICT)
+        );
+        assert_eq!(
+            create_public_client(
+                State(state.clone()),
+                admin_headers(),
+                Json(CreatePublicClient {
+                    client_id: "bad id".to_owned(),
+                    redirect_uri: "https://browser.example/callback".to_owned(),
+                    scopes: None,
+                }),
+            )
+            .await
+            .err(),
+            Some(StatusCode::BAD_REQUEST)
+        );
+
+        let verifier = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+        let challenge = pkce_challenge(verifier);
+        let request = authorize_request(challenge.clone());
+        let page = authorize_page(State(state.clone()), Query(request.clone()))
+            .await
+            .unwrap()
+            .into_response();
+        assert_eq!(page.status(), StatusCode::OK);
+        let csrf_cookie = page
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        assert!(
+            page.headers()
+                .get(header::SET_COOKIE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("HttpOnly")
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, csrf_cookie.parse().unwrap());
+        let response = authorize(
+            State(state.clone()),
+            headers.clone(),
+            Form(AuthorizeForm {
+                csrf: csrf_cookie.trim_start_matches("auth_csrf=").to_owned(),
+                response_type: request.response_type,
+                client_id: request.client_id,
+                redirect_uri: request.redirect_uri,
+                state: request.state,
+                code_challenge: request.code_challenge,
+                code_challenge_method: request.code_challenge_method,
+                scope: "api:read".to_owned(),
+                email: "USER@example.test".to_owned(),
+                password: "correct horse battery staple".to_owned(),
+                consent: Some("approve".to_owned()),
+            }),
+        )
+        .await
+        .unwrap()
+        .into_response();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL).unwrap(),
+            "no-store"
+        );
+        let location = response
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let redirect = Url::parse(location).unwrap();
+        let code = redirect
+            .query_pairs()
+            .find_map(|(key, value)| (key == "code").then(|| value.into_owned()))
+            .unwrap();
+        let response = exchange_code(
+            &state,
+            TokenRequest {
+                grant_type: "authorization_code".to_owned(),
+                client_id: Some("public".to_owned()),
+                client_secret: None,
+                scope: None,
+                code: Some(code.clone()),
+                redirect_uri: Some("https://app.example/callback".to_owned()),
+                code_verifier: Some(verifier.to_owned()),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.token_type, "Bearer");
+        assert_eq!(response.expires_in, 300);
+        assert_eq!(
+            exchange_code(
+                &state,
+                TokenRequest {
+                    grant_type: "authorization_code".to_owned(),
+                    client_id: Some("public".to_owned()),
+                    client_secret: None,
+                    scope: None,
+                    code: Some(code),
+                    redirect_uri: Some("https://app.example/callback".to_owned()),
+                    code_verifier: Some(verifier.to_owned()),
+                },
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    #[tokio::test]
+    async fn service_token_requires_a_valid_secret_and_allowed_scopes() {
+        let state = app_state().await;
+        let issued = issue_service_token(
+            &state,
+            TokenRequest {
+                grant_type: "client_credentials".to_owned(),
+                client_id: Some("service".to_owned()),
+                client_secret: Some("test-service-secret".to_owned()),
+                scope: Some("api:write".to_owned()),
+                code: None,
+                redirect_uri: None,
+                code_verifier: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(issued.token_type, "Bearer");
+        assert_eq!(issued.expires_in, 300);
+        assert_eq!(
+            issue_service_token(
+                &state,
+                TokenRequest {
+                    grant_type: "client_credentials".to_owned(),
+                    client_id: Some("service".to_owned()),
+                    client_secret: Some("wrong-secret".to_owned()),
+                    scope: None,
+                    code: None,
+                    redirect_uri: None,
+                    code_verifier: None,
+                },
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            issue_service_token(
+                &state,
+                TokenRequest {
+                    grant_type: "client_credentials".to_owned(),
+                    client_id: Some("service".to_owned()),
+                    client_secret: Some("test-service-secret".to_owned()),
+                    scope: Some("api:admin".to_owned()),
+                    code: None,
+                    redirect_uri: None,
+                    code_verifier: None,
+                },
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            token(
+                State(state),
+                Form(TokenRequest {
+                    grant_type: "unsupported".to_owned(),
+                    client_id: None,
+                    client_secret: None,
+                    scope: None,
+                    code: None,
+                    redirect_uri: None,
+                    code_verifier: None,
+                }),
+            )
+            .await
+            .err()
+            .unwrap(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+}

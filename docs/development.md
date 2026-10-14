@@ -24,6 +24,18 @@ npm run build:all   # Rust and sequential frontend production build
 npm run test:e2e    # Disposable Docker Compose stack plus Playwright
 ```
 
+Rust quality checks can be run individually:
+
+```sh
+moon run warada:fmt       # Check Rust formatting
+moon run warada:lint      # Run Clippy across all Rust targets
+moon run warada:coverage  # HTML coverage report; requires cargo-llvm-cov
+```
+
+The coverage task requires at least 70% region, function, and line coverage
+across the Rust workspace. Its HTML report is written to
+`target/llvm-cov/html/index.html`.
+
 To run frontend projects separately during local development, use the commands
 in `ui/README.md` and start the Rust display and crawler services as described
 in their READMEs. E2E setup and folder responsibilities are in

@@ -17,3 +17,8 @@ tokio-rusqlite = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
+
+[[test]]
+name = "auth"
+path = "tests/auth.rs"
+test = false

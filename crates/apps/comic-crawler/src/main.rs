@@ -51,3 +51,127 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use comic_crawler::state::{ChapterRecord, ComicRecord};
+    use crawler_proto::{ComicRequest, Empty, crawler_server::Crawler};
+
+    #[tokio::test]
+    async fn grpc_catalog_reads_memory_state_and_returns_expected_errors() {
+        let previous_database_path = std::env::var("DATABASE_PATH").ok();
+        unsafe {
+            std::env::remove_var("DATABASE_PATH");
+        }
+        let state = AppState::default();
+        let service = grpc::CrawlerGrpc::new(state.clone());
+
+        assert!(
+            service
+                .list_comics(tonic::Request::new(Empty {}))
+                .await
+                .unwrap()
+                .into_inner()
+                .comics
+                .is_empty()
+        );
+        assert_eq!(
+            service
+                .get_comic(tonic::Request::new(ComicRequest {
+                    slug: "missing".to_owned(),
+                }))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::NotFound
+        );
+        assert_eq!(
+            service
+                .list_chapters(tonic::Request::new(ComicRequest {
+                    slug: "missing".to_owned(),
+                }))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::NotFound
+        );
+
+        state
+            .insert_comic(ComicRecord {
+                id: 1,
+                slug: "one-piece".to_owned(),
+                title: "One Piece".to_owned(),
+                author: Some("Eiichiro Oda".to_owned()),
+                description: None,
+                status: "OnGoing".to_owned(),
+                chapter_count: Some(1),
+                crawling_status: "0000".to_owned(),
+                origin_id: Some("123".to_owned()),
+                origin_url: Some("https://example.test/one-piece".to_owned()),
+                origin_path_params: Some("one-piece-123".to_owned()),
+                thumb_image_id: None,
+            })
+            .await;
+        state
+            .insert_chapter(ChapterRecord {
+                id: 2,
+                comic_id: 1,
+                chapter_num: "1".to_owned(),
+                position: 1,
+                crawling_status: "0000".to_owned(),
+                origin_url: "https://example.test/chapter/1".to_owned(),
+                origin_path_params: "one-piece/1".to_owned(),
+            })
+            .await;
+
+        let comic = service
+            .get_comic(tonic::Request::new(ComicRequest {
+                slug: "one-piece".to_owned(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .comic
+            .unwrap();
+        assert_eq!(comic.id, 1);
+        assert_eq!(comic.author.as_deref(), Some("Eiichiro Oda"));
+        let chapters = service
+            .list_chapters(tonic::Request::new(ComicRequest {
+                slug: "one-piece".to_owned(),
+            }))
+            .await
+            .unwrap()
+            .into_inner()
+            .chapters;
+        assert_eq!(chapters.len(), 1);
+        assert_eq!(chapters[0].chapter_number, "1");
+        assert_eq!(
+            service
+                .list_comics(tonic::Request::new(Empty {}))
+                .await
+                .unwrap()
+                .into_inner()
+                .comics
+                .len(),
+            1
+        );
+        assert_eq!(
+            service
+                .list_crawl_jobs(tonic::Request::new(Empty {}))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unavailable
+        );
+
+        unsafe {
+            if let Some(path) = previous_database_path {
+                std::env::set_var("DATABASE_PATH", path);
+            } else {
+                std::env::remove_var("DATABASE_PATH");
+            }
+        }
+    }
+}

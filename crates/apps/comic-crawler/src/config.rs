@@ -69,3 +69,82 @@ pub async fn preflight_checks() -> Result<(), String> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::OnceLock;
+
+    static ENV_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+    fn restore(name: &str, value: Option<String>) {
+        unsafe {
+            if let Some(value) = value {
+                env::set_var(name, value);
+            } else {
+                env::remove_var(name);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn configuration_helpers_validate_values_and_preflight_database() {
+        let _lock = ENV_LOCK.get_or_init(Default::default).lock().await;
+        let keys = [
+            "DATABASE_PATH",
+            "CRAWL_API_KEY",
+            "NETTRUYEN_URL",
+            "PORT",
+            "IMAGE_STORAGE_DIR",
+        ];
+        let previous: Vec<_> = keys.iter().map(|key| (*key, env::var(key).ok())).collect();
+
+        unsafe {
+            env::remove_var("DATABASE_PATH");
+            env::remove_var("CRAWL_API_KEY");
+            env::remove_var("NETTRUYEN_URL");
+            env::remove_var("PORT");
+            env::remove_var("IMAGE_STORAGE_DIR");
+        }
+        assert!(require_var("DATABASE_PATH").is_err());
+        assert!(validate_http_url("URL", "ftp://example.test").is_err());
+        assert_eq!(nettruyen_url(), "https://nettruyenar.com");
+        assert_eq!(image_storage_dir(), PathBuf::from("./runtime"));
+
+        unsafe {
+            env::set_var("NETTRUYEN_URL", "invalid");
+            env::set_var("IMAGE_STORAGE_DIR", "/tmp/warada-images");
+        }
+        assert_eq!(nettruyen_url(), "https://nettruyenar.com");
+        assert_eq!(image_storage_dir(), PathBuf::from("/tmp/warada-images"));
+        assert!(validate_http_url("URL", "https://example.test").is_ok());
+
+        assert!(preflight_checks().await.is_err());
+        let db_path = env::temp_dir().join(format!(
+            "warada-config-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        unsafe {
+            env::set_var("DATABASE_PATH", &db_path);
+            env::set_var("CRAWL_API_KEY", "test-key");
+            env::set_var("NETTRUYEN_URL", "https://example.test");
+            env::set_var("PORT", "not-a-port");
+        }
+        assert!(preflight_checks().await.unwrap_err().contains("PORT"));
+        unsafe {
+            env::set_var("PORT", "3000");
+        }
+        preflight_checks().await.unwrap();
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+
+        for (key, value) in previous {
+            restore(key, value);
+        }
+    }
+}

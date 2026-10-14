@@ -62,13 +62,12 @@ impl DatabaseService {
         Ok(Self { connection })
     }
 
-    pub(crate) async fn users(
-        &self,
-    ) -> Result<Vec<UserRecord>, tokio_rusqlite::Error> {
+    pub(crate) async fn users(&self) -> Result<Vec<UserRecord>, tokio_rusqlite::Error> {
         self.connection
             .call(|connection| {
-                let mut statement = connection
-                    .prepare("SELECT id, email, active, created_at FROM users ORDER BY created_at DESC")?;
+                let mut statement = connection.prepare(
+                    "SELECT id, email, active, created_at FROM users ORDER BY created_at DESC",
+                )?;
                 statement
                     .query_map([], user_record)?
                     .collect::<Result<Vec<_>, _>>()
@@ -76,10 +75,7 @@ impl DatabaseService {
             .await
     }
 
-    pub(crate) async fn user(
-        &self,
-        id: &str,
-    ) -> Result<Option<UserRecord>, tokio_rusqlite::Error> {
+    pub(crate) async fn user(&self, id: &str) -> Result<Option<UserRecord>, tokio_rusqlite::Error> {
         let id = id.to_owned();
         self.connection
             .call(move |connection| {
@@ -139,11 +135,8 @@ impl DatabaseService {
         password_hash: &str,
         created_at: i64,
     ) -> Result<(), tokio_rusqlite::Error> {
-        let (id, email, password_hash) = (
-            id.to_owned(),
-            email.to_owned(),
-            password_hash.to_owned(),
-        );
+        let (id, email, password_hash) =
+            (id.to_owned(), email.to_owned(), password_hash.to_owned());
         self.connection
             .call(move |connection| {
                 connection
@@ -164,11 +157,8 @@ impl DatabaseService {
         password_hash: &str,
         active: i64,
     ) -> Result<usize, tokio_rusqlite::Error> {
-        let (id, email, password_hash) = (
-            id.to_owned(),
-            email.to_owned(),
-            password_hash.to_owned(),
-        );
+        let (id, email, password_hash) =
+            (id.to_owned(), email.to_owned(), password_hash.to_owned());
         self.connection
             .call(move |connection| {
                 connection.execute(
@@ -180,10 +170,7 @@ impl DatabaseService {
             .await
     }
 
-    pub(crate) async fn deactivate_user(
-        &self,
-        id: &str,
-    ) -> Result<usize, tokio_rusqlite::Error> {
+    pub(crate) async fn deactivate_user(&self, id: &str) -> Result<usize, tokio_rusqlite::Error> {
         let id = id.to_owned();
         self.connection
             .call(move |connection| {
@@ -192,9 +179,7 @@ impl DatabaseService {
             .await
     }
 
-    pub(crate) async fn service_clients(
-        &self,
-    ) -> Result<Vec<ClientRecord>, tokio_rusqlite::Error> {
+    pub(crate) async fn service_clients(&self) -> Result<Vec<ClientRecord>, tokio_rusqlite::Error> {
         self.connection
             .call(|connection| {
                 let mut statement = connection.prepare(
@@ -473,12 +458,202 @@ fn client_credential(row: &Row<'_>) -> tokio_rusqlite::rusqlite::Result<ClientCr
     })
 }
 
-fn authorization_code(
-    row: &Row<'_>,
-) -> tokio_rusqlite::rusqlite::Result<AuthorizationCodeRecord> {
+fn authorization_code(row: &Row<'_>) -> tokio_rusqlite::rusqlite::Result<AuthorizationCodeRecord> {
     Ok(AuthorizationCodeRecord {
         user_id: row.get("user_id")?,
         code_challenge: row.get("code_challenge")?,
         scopes: row.get("scopes")?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn database_lifecycle_and_authorization_code_redemption() {
+        let database = DatabaseService::connect(":memory:")
+            .await
+            .expect("connect in-memory database");
+        database
+            .create_user("user-1", "one@example.test", "password-hash", 10)
+            .await
+            .expect("create user");
+        database
+            .create_user("user-2", "two@example.test", "password-hash", 20)
+            .await
+            .expect("create second user");
+
+        assert_eq!(database.users().await.unwrap().len(), 2);
+        assert_eq!(
+            database.user("user-1").await.unwrap().unwrap().created_at,
+            10
+        );
+        assert!(database.user("missing").await.unwrap().is_none());
+        assert_eq!(
+            database
+                .user_for_update("user-1")
+                .await
+                .unwrap()
+                .unwrap()
+                .password_hash,
+            "password-hash"
+        );
+        assert!(
+            database
+                .user_by_email("missing@example.test")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(database.user_is_active("user-1").await.unwrap());
+
+        database
+            .update_user("user-1", "updated@example.test", "new-hash", 1)
+            .await
+            .unwrap();
+        assert_eq!(
+            database
+                .user_by_email("updated@example.test")
+                .await
+                .unwrap()
+                .unwrap()
+                .password_hash,
+            "new-hash"
+        );
+        assert_eq!(
+            database
+                .update_password_hash("user-1", "rehash")
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            database
+                .user_for_update("user-1")
+                .await
+                .unwrap()
+                .unwrap()
+                .password_hash,
+            "rehash"
+        );
+        assert_eq!(database.deactivate_user("user-2").await.unwrap(), 1);
+        assert!(!database.user_is_active("user-2").await.unwrap());
+        assert_eq!(database.deactivate_user("missing").await.unwrap(), 0);
+
+        database
+            .create_service_client("service", "secret-hash", "api:read", 30)
+            .await
+            .unwrap();
+        database
+            .create_public_client("public", "https://app.example/callback", "api:read", 40)
+            .await
+            .unwrap();
+        assert_eq!(database.service_clients().await.unwrap().len(), 1);
+        assert_eq!(
+            database
+                .service_client("service")
+                .await
+                .unwrap()
+                .unwrap()
+                .scopes,
+            "api:read"
+        );
+        assert!(database.service_client("public").await.unwrap().is_none());
+        assert_eq!(
+            database
+                .client("service")
+                .await
+                .unwrap()
+                .unwrap()
+                .secret_hash
+                .as_deref(),
+            Some("secret-hash")
+        );
+        let public = database.client("public").await.unwrap().unwrap();
+        assert_eq!(public.client_type, "public");
+        assert_eq!(
+            public.redirect_uri.as_deref(),
+            Some("https://app.example/callback")
+        );
+        assert_eq!(
+            database
+                .update_service_client("service", "api:read api:write", 1)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            database
+                .update_service_client("public", "api:write", 1)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            database.deactivate_service_client("service").await.unwrap(),
+            1
+        );
+        assert_eq!(
+            database.deactivate_service_client("public").await.unwrap(),
+            0
+        );
+
+        database
+            .insert_authorization_code(
+                "code-hash",
+                "public",
+                "user-1",
+                "https://app.example/callback",
+                "pkce-challenge",
+                "api:read",
+                100,
+            )
+            .await
+            .unwrap();
+        assert!(
+            database
+                .redeem_authorization_code(
+                    "code-hash",
+                    "public",
+                    "https://wrong.example/callback",
+                    50
+                )
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            database
+                .redeem_authorization_code(
+                    "code-hash",
+                    "public",
+                    "https://app.example/callback",
+                    100
+                )
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let redeemed = database
+            .redeem_authorization_code("code-hash", "public", "https://app.example/callback", 99)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(redeemed.user_id, "user-1");
+        assert_eq!(redeemed.code_challenge, "pkce-challenge");
+        assert_eq!(redeemed.scopes, "api:read");
+        assert!(
+            database
+                .redeem_authorization_code(
+                    "code-hash",
+                    "public",
+                    "https://app.example/callback",
+                    50
+                )
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
 }

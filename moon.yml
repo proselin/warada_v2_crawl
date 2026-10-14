@@ -6,8 +6,23 @@ tasks:
     options:
       cache: false
 
+  fmt:
+    command: cargo fmt --all -- --check
+    options:
+      cache: false
+
+  lint:
+    command: cargo clippy --workspace --all-targets --all-features
+    options:
+      cache: false
+
   test:
     command: cargo test --workspace
+    options:
+      cache: false
+
+  coverage:
+    command: cargo llvm-cov --workspace --html --fail-under-regions 70 --fail-under-functions 70 --fail-under-lines 70
     options:
       cache: false
 

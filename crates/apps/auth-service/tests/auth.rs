@@ -1,27 +1,12 @@
-#[path = "../src/database.rs"]
-mod database;
-#[path = "../src/jwt_cache.rs"]
-mod jwt_cache;
-#[path = "../src/jwt_keys.rs"]
-mod jwt_keys;
-#[path = "../src/models.rs"]
-mod models;
-#[path = "../src/oauth.rs"]
-mod oauth;
-#[path = "../src/security.rs"]
-mod security;
-#[path = "../src/state.rs"]
-mod state;
-#[path = "../src/tokens.rs"]
-mod tokens;
-#[path = "../src/verification.rs"]
-mod verification;
-
 use std::sync::Arc;
 
+use crate::{
+    jwt_cache, jwt_keys,
+    models::{Claims, PrincipalType},
+    oauth, security, tokens,
+};
 use axum::http::StatusCode;
 use jsonwebtoken::{Algorithm, Header, Validation, decode_header, encode};
-use models::{Claims, PrincipalType};
 use sha2::{Digest, Sha256};
 
 #[test]

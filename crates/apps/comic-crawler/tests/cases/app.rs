@@ -59,6 +59,7 @@ async fn app_routes_work_and_config_behaves_as_expected() {
 
     unsafe {
         std::env::set_var("CRAWL_API_KEY", "test-key");
+        std::env::remove_var("DATABASE_PATH");
     }
     let response = build_app()
         .oneshot(
@@ -73,6 +74,73 @@ async fn app_routes_work_and_config_behaves_as_expected() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = build_app()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/crawl/nettruyen/comic")
+                .header(CONTENT_TYPE, "application/json")
+                .header("x-crawl-api-key", "test-key")
+                .body(Body::from("{invalid"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = build_app()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/crawl/nettruyen/comic")
+                .header(CONTENT_TYPE, "application/json")
+                .header("x-crawl-api-key", "test-key")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let response = build_app()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/crawl/nettruyen/comic")
+                .header(CONTENT_TYPE, "application/json")
+                .header("x-crawl-api-key", "test-key")
+                .body(Body::from(r#"{"slug-and-id":"one-piece-1"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let response = build_app()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/crawl/nettruyen/comic/one-piece/retry")
+                .header("x-crawl-api-key", "test-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let response = build_app()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/crawl/progress/missing")
+                .header("x-crawl-api-key", "test-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
     restore_env("CRAWL_API_KEY", previous_key);
     restore_env("NETTRUYEN_URL", previous_url);

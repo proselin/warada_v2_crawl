@@ -4,11 +4,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::OnceCell;
 use tokio_rusqlite::{
     Connection,
     rusqlite::{OptionalExtension, Row, params},
 };
-use tokio::sync::OnceCell;
 
 #[derive(Clone, Debug)]
 pub struct Database {
@@ -68,9 +68,8 @@ impl Database {
                         connection.pragma_update(None, "journal_mode", "WAL")?;
                         connection.pragma_update(None, "synchronous", "NORMAL")?;
                         connection.pragma_update(None, "foreign_keys", "ON")?;
-                        connection.execute_batch(include_str!(
-                            "../migrations/0001_init_database.sql"
-                        ))
+                        connection
+                            .execute_batch(include_str!("../migrations/0001_init_database.sql"))
                     })
                     .await
                     .map_err(|error| error.to_string())?;
@@ -86,10 +85,7 @@ impl Database {
         slug: &str,
         job_type: &str,
     ) -> Result<Option<i64>, String> {
-        let connection = self
-            .ensure_sqlite()
-            .await
-            .ok_or("SQLite is unavailable")?;
+        let connection = self.ensure_sqlite().await.ok_or("SQLite is unavailable")?;
         let slug = slug.to_owned();
         let job_type = job_type.to_owned();
         connection
@@ -109,10 +105,7 @@ impl Database {
     }
 
     pub async fn claim_crawl_job(&self, worker_id: &str) -> Result<Option<CrawlJob>, String> {
-        let connection = self
-            .ensure_sqlite()
-            .await
-            .ok_or("SQLite is unavailable")?;
+        let connection = self.ensure_sqlite().await.ok_or("SQLite is unavailable")?;
         let worker_id = worker_id.to_owned();
         connection
             .call(move |connection| {
@@ -136,10 +129,7 @@ impl Database {
     }
 
     pub async fn has_crawl_job(&self, slug: &str) -> Result<bool, String> {
-        let connection = self
-            .ensure_sqlite()
-            .await
-            .ok_or("SQLite is unavailable")?;
+        let connection = self.ensure_sqlite().await.ok_or("SQLite is unavailable")?;
         let slug = slug.to_owned();
         connection
             .call(move |connection| {
@@ -160,10 +150,7 @@ impl Database {
     }
 
     pub async fn latest_crawl_job(&self, slug: &str) -> Result<Option<CrawlJob>, String> {
-        let connection = self
-            .ensure_sqlite()
-            .await
-            .ok_or("SQLite is unavailable")?;
+        let connection = self.ensure_sqlite().await.ok_or("SQLite is unavailable")?;
         let slug = slug.to_owned();
         connection
             .call(move |connection| {
@@ -190,10 +177,7 @@ impl Database {
         success: bool,
         error: Option<&str>,
     ) -> Result<(), String> {
-        let connection = self
-            .ensure_sqlite()
-            .await
-            .ok_or("SQLite is unavailable")?;
+        let connection = self.ensure_sqlite().await.ok_or("SQLite is unavailable")?;
         let status = if success { "finished" } else { "failed" };
         let worker_id = worker_id.to_owned();
         let error = error.map(str::to_owned);
@@ -278,10 +262,7 @@ impl Database {
     }
 
     pub async fn list_comics_for_display(&self) -> Result<Vec<crate::state::ComicRecord>, String> {
-        let connection = self
-            .ensure_sqlite()
-            .await
-            .ok_or("SQLite is unavailable")?;
+        let connection = self.ensure_sqlite().await.ok_or("SQLite is unavailable")?;
         connection
             .call(|connection| {
                 let mut statement = connection.prepare(
@@ -302,10 +283,7 @@ impl Database {
         &self,
         slug: &str,
     ) -> Result<Option<crate::state::ComicRecord>, String> {
-        let connection = self
-            .ensure_sqlite()
-            .await
-            .ok_or("SQLite is unavailable")?;
+        let connection = self.ensure_sqlite().await.ok_or("SQLite is unavailable")?;
         let slug = slug.to_owned();
         connection
             .call(move |connection| {
@@ -328,10 +306,7 @@ impl Database {
         &self,
         comic_id: i64,
     ) -> Result<Vec<crate::state::ChapterRecord>, String> {
-        let connection = self
-            .ensure_sqlite()
-            .await
-            .ok_or("SQLite is unavailable")?;
+        let connection = self.ensure_sqlite().await.ok_or("SQLite is unavailable")?;
         connection
             .call(move |connection| {
                 let mut statement = connection.prepare(
@@ -348,10 +323,7 @@ impl Database {
     }
 
     pub async fn list_crawl_jobs_for_display(&self) -> Result<Vec<CrawlJob>, String> {
-        let connection = self
-            .ensure_sqlite()
-            .await
-            .ok_or("SQLite is unavailable")?;
+        let connection = self.ensure_sqlite().await.ok_or("SQLite is unavailable")?;
         connection
             .call(|connection| {
                 let mut statement = connection.prepare(
@@ -516,7 +488,8 @@ impl Database {
         for name in names {
             let normalized = normalize_tag_name(name);
             if !normalized.is_empty() {
-                seen.entry(normalized).or_insert_with(|| name.trim().to_owned());
+                seen.entry(normalized)
+                    .or_insert_with(|| name.trim().to_owned());
             }
         }
         if seen.is_empty() {
@@ -678,6 +651,207 @@ mod tests {
 
         drop(first);
         drop(second);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{path}{suffix}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn sqlite_catalog_sequences_tags_images_and_job_failures() {
+        use crate::state::{ChapterRecord, ComicRecord, ImageRecord};
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        let path =
+            env::temp_dir().join(format!("warada-catalog-{}-{unique}.db", std::process::id()));
+        let path = path.to_string_lossy().into_owned();
+        let database = Database {
+            path: Some(path.clone()),
+            connection: Arc::new(OnceCell::new()),
+        };
+        database
+            .initialize()
+            .await
+            .expect("initialize test database");
+        let comic = ComicRecord {
+            id: 1,
+            slug: "one-piece".to_owned(),
+            title: "One Piece".to_owned(),
+            author: Some("Eiichiro Oda".to_owned()),
+            description: Some("Pirates".to_owned()),
+            status: "OnGoing".to_owned(),
+            chapter_count: Some(2),
+            crawling_status: "0000".to_owned(),
+            origin_id: Some("123".to_owned()),
+            origin_url: Some("https://example.test/comic".to_owned()),
+            origin_path_params: Some("one-piece-123".to_owned()),
+            thumb_image_id: None,
+        };
+        let pending = ChapterRecord {
+            id: 2,
+            comic_id: comic.id,
+            chapter_num: "1".to_owned(),
+            position: 1,
+            crawling_status: "0000".to_owned(),
+            origin_url: "https://example.test/chapter/1".to_owned(),
+            origin_path_params: "one-piece/1".to_owned(),
+        };
+        let finished = ChapterRecord {
+            id: 3,
+            chapter_num: "2".to_owned(),
+            position: 2,
+            crawling_status: "9999".to_owned(),
+            ..pending.clone()
+        };
+        database.insert_comic(&comic).await.unwrap();
+        database.insert_chapter(&pending).await.unwrap();
+        database.insert_chapter(&finished).await.unwrap();
+        database
+            .insert_image(&ImageRecord {
+                id: 4,
+                chapter_id: Some(pending.id),
+                position: Some(1),
+                file_name: "page.jpg".to_owned(),
+                file_path: "comic/1/page.jpg".to_owned(),
+                origin_url: Some("https://example.test/page.jpg".to_owned()),
+                image_type: "comic".to_owned(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(database.comic_exists_by_slug("one-piece").await, Some(true));
+        assert_eq!(database.comic_exists_by_slug("missing").await, Some(false));
+        assert_eq!(
+            database.comic_exists_by_origin_path("one-piece-123").await,
+            Some(true)
+        );
+        assert_eq!(
+            database.get_comic_by_slug("one-piece").await.unwrap().title,
+            "One Piece"
+        );
+        assert_eq!(database.list_comics_for_display().await.unwrap().len(), 1);
+        assert_eq!(
+            database
+                .get_comic_for_display("one-piece")
+                .await
+                .unwrap()
+                .unwrap()
+                .author
+                .as_deref(),
+            Some("Eiichiro Oda")
+        );
+        assert!(
+            database
+                .get_comic_for_display("missing")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            database
+                .list_chapters_for_display(comic.id)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            database
+                .get_pending_chapters_for_comic(comic.id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        database
+            .update_chapter_status(pending.id, "9999")
+            .await
+            .unwrap();
+        assert!(
+            database
+                .get_pending_chapters_for_comic(comic.id)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(database.next_id("comic_id_seq").await, Some(2));
+        assert_eq!(database.next_id("comic_id_seq").await, Some(3));
+        assert_eq!(database.next_id("chapter_id_seq").await, Some(4));
+        assert_eq!(database.next_id("image_id_seq").await, Some(5));
+        assert_eq!(database.next_id("tag_id_seq").await, Some(1));
+        assert_eq!(database.next_id("unknown").await, None);
+
+        let names = vec![
+            " Action ".to_owned(),
+            "action".to_owned(),
+            "Adventure".to_owned(),
+            " ".to_owned(),
+        ];
+        let tag_ids = database.resolve_or_create_tags(&names).await.unwrap();
+        assert_eq!(tag_ids.len(), 2);
+        assert_eq!(
+            {
+                let mut existing = database
+                    .resolve_or_create_tags(&["ACTION".to_owned(), "Adventure".to_owned()])
+                    .await
+                    .unwrap();
+                existing.sort_unstable();
+                existing
+            },
+            {
+                let mut created = tag_ids.clone();
+                created.sort_unstable();
+                created
+            }
+        );
+        assert!(
+            database
+                .resolve_or_create_tags(&[])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        database.increment_comic_count(&tag_ids).await.unwrap();
+        database.link_comic_tag(comic.id, tag_ids[0]).await.unwrap();
+
+        let job_id = database
+            .enqueue_crawl_job("one-piece", "retry")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(database.has_crawl_job("one-piece").await.unwrap());
+        let claimed = database
+            .claim_crawl_job("catalog-worker")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(claimed.id, job_id);
+        assert_eq!(claimed.status, "running");
+        assert!(
+            database
+                .finish_crawl_job(job_id, "wrong-worker", true, None)
+                .await
+                .is_err()
+        );
+        database
+            .finish_crawl_job(job_id, "catalog-worker", false, Some("failed"))
+            .await
+            .unwrap();
+        let latest = database
+            .latest_crawl_job("one-piece")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.status, "failed");
+        assert_eq!(latest.error.as_deref(), Some("failed"));
+        assert_eq!(
+            database.list_crawl_jobs_for_display().await.unwrap().len(),
+            1
+        );
+
+        drop(database);
         tokio::time::sleep(Duration::from_millis(20)).await;
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{path}{suffix}"));

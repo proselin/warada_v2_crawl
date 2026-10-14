@@ -372,3 +372,58 @@ pub fn timestamp_tag() -> String {
         now.second(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parsers_handle_jsonld_variants_and_invalid_markup() {
+        let html = r#"
+            <script type='application/ld+json'>not json</script>
+            <script type="application/ld+json">
+                {"@graph":[{"@type":["Book","ComicSeries"],"name":"Series","genre":"Fantasy"}]}
+            </script>
+        "#;
+        let series = find_comic_series_node(html).unwrap();
+        assert_eq!(series["name"], "Series");
+        assert_eq!(series["genre"], "Fantasy");
+        assert!(find_comic_series_node("<html></html>").is_none());
+        assert!(extract_regex_group("slug=abc", "(", "bad pattern").is_err());
+        assert!(extract_regex_group("slug=abc", r"slug=(\d+)", "missing").is_err());
+    }
+
+    #[test]
+    fn image_parsers_reject_empty_sources_and_invalid_mime_types() {
+        let candidates = extract_chapter_image_candidates(
+            r#"<img data-sv1="" /><img data-sv2="https://img.test/a.jpg" />"#,
+        );
+        assert!(candidates.is_empty());
+        assert_eq!(extension_from_url("not a url"), None);
+        assert_eq!(extension_from_content_type("invalid"), None);
+        assert_eq!(
+            extension_from_content_type("image/webp; charset=binary"),
+            Some(".webp".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn external_operation_preserves_success_and_error_results() {
+        assert_eq!(
+            time_external_operation("test.success", async { Ok::<_, anyhow::Error>(42) })
+                .await
+                .unwrap(),
+            42
+        );
+        assert!(
+            time_external_operation("test.failure", async {
+                Err::<(), _>(anyhow::anyhow!("expected failure"))
+            })
+            .await
+            .is_err()
+        );
+        let timestamp = timestamp_tag();
+        assert_eq!(timestamp.len(), 15);
+        assert_eq!(timestamp.as_bytes()[8], b'_');
+    }
+}
