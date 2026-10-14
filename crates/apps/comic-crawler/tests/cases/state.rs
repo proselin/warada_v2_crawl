@@ -2,6 +2,7 @@ use comic_crawler::state::{AppState, ChapterRecord, ComicRecord, normalize_tag_n
 
 #[tokio::test]
 async fn state_tracks_tags_comics_chapters_and_active_slugs() {
+    let _env_lock = super::common::ENV_LOCK.lock().unwrap();
     let state = AppState::default();
     assert_eq!(normalize_tag_name(" Action "), "action");
     assert_eq!(normalize_tag_name("Fantasy"), "fantasy");
