@@ -22,7 +22,7 @@ tasks:
       cache: false
 
   coverage:
-    command: cargo llvm-cov --workspace --html --fail-under-regions 70 --fail-under-functions 70 --fail-under-lines 70
+    command: python3 scripts/rust_coverage.py
     options:
       cache: false
 

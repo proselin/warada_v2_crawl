@@ -309,3 +309,79 @@ async fn time_database_operation<T>(
 pub fn normalize_tag_name(name: &str) -> String {
     name.trim().to_lowercase()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn memory_store_fallbacks_keep_catalog_and_tags_consistent() {
+        let _env_lock = crate::test_support::ENV_LOCK.lock().await;
+        let state = AppState::default();
+        assert_eq!(state.next_id("other").await, 1);
+        assert_eq!(state.next_id("other").await, 2);
+        assert!(!state.comic_exists_by_slug("missing").await);
+        assert!(!state.comic_exists_by_origin_path("missing").await);
+
+        let comic = ComicRecord {
+            id: 10,
+            slug: "memory-comic".to_owned(),
+            title: "Memory Comic".to_owned(),
+            author: None,
+            description: None,
+            status: "ongoing".to_owned(),
+            chapter_count: None,
+            crawling_status: "queued".to_owned(),
+            origin_id: None,
+            origin_url: None,
+            origin_path_params: Some("memory-comic-10".to_owned()),
+            thumb_image_id: None,
+        };
+        state.insert_comic(comic.clone()).await;
+        assert!(state.comic_exists_by_slug("memory-comic").await);
+        assert!(state.comic_exists_by_origin_path("memory-comic-10").await);
+
+        let chapter = ChapterRecord {
+            id: 11,
+            comic_id: comic.id,
+            chapter_num: "1".to_owned(),
+            position: 1,
+            crawling_status: "pending".to_owned(),
+            origin_url: "https://example.test/chapter".to_owned(),
+            origin_path_params: "memory-comic/1".to_owned(),
+        };
+        state.insert_chapter(chapter.clone()).await;
+        state
+            .insert_image(ImageRecord {
+                id: 12,
+                chapter_id: Some(chapter.id),
+                position: Some(1),
+                file_name: "page.jpg".to_owned(),
+                file_path: "comic/page.jpg".to_owned(),
+                origin_url: None,
+                image_type: "chapter".to_owned(),
+            })
+            .await;
+        state.update_chapter_status(999, "ignored").await;
+        state.update_chapter_status(chapter.id, "finished").await;
+        assert_eq!(
+            state.get_chapters_for_comic(comic.id)[0].crawling_status,
+            "finished"
+        );
+
+        let ids = state
+            .resolve_or_create_tags(&[" Action ".to_owned(), "action".to_owned(), "   ".to_owned()])
+            .await;
+        assert_eq!(ids.len(), 1);
+        assert_eq!(
+            state.resolve_or_create_tags(&["ACTION".to_owned()]).await,
+            ids
+        );
+        state.increment_comic_count(&[]).await;
+        state.increment_comic_count(&ids).await;
+        assert_eq!(state.shared.tags.read().unwrap()["action"].comic_count, 1);
+        state.link_comic_tag(comic.id, ids[0]).await;
+        state.link_comic_tag(comic.id, ids[0]).await;
+        assert_eq!(state.shared.comic_tags.read().unwrap()[&comic.id].len(), 1);
+    }
+}

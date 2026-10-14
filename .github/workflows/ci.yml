@@ -135,6 +135,9 @@ jobs:
                   rust=true
                   ui=true
                   ;;
+                moon.yml|scripts/rust_coverage.py)
+                  rust=true
+                  ;;
             esac
           done <<< "$changed"
 
@@ -167,6 +170,9 @@ jobs:
     needs: changes
     if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
       packages: read
@@ -174,6 +180,11 @@ jobs:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         if: needs.changes.outputs.rust == 'true'
+        with:
+          components: llvm-tools-preview
+      - name: Install cargo-llvm-cov
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo install --locked cargo-llvm-cov
       - uses: actions/setup-node@v5
         if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true'
         with:
@@ -187,9 +198,9 @@ jobs:
         run: |
           mkdir -p test-reports
           cargo build --locked --workspace --release 2>&1 | tee test-reports/cargo-build.log
-      - name: Test Rust crates
+      - name: Test Rust crates and check coverage
         if: needs.changes.outputs.rust == 'true'
-        run: cargo test --locked --workspace --all-targets 2>&1 | tee test-reports/cargo-test.log
+        run: python3 scripts/rust_coverage.py 2>&1 | tee test-reports/cargo-test.log
       - name: Install UI dependencies
         if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true'
         run: npm ci
@@ -249,6 +260,7 @@ jobs:
             target/release/auth_service
             target/release/comic_crawler
             target/release/display_service
+            target/llvm-cov/
             ui/apps/display/dist/
             ui/apps/activity-remote/dist/
             ui/libs/ui-kit/dist/
@@ -262,6 +274,9 @@ jobs:
     needs: [changes, checks]
     if: github.event_name == 'push' && needs.changes.outputs.publish == 'true'
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
       packages: write

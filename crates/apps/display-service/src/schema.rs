@@ -156,4 +156,55 @@ mod tests {
             assert!(sdl.contains(field), "missing GraphQL field: {field}");
         }
     }
+
+    #[tokio::test]
+    async fn resolvers_report_missing_clients_and_convert_crawler_records() {
+        let schema = Schema::build(Query, EmptyMutation, EmptySubscription).finish();
+        let response = schema
+            .execute("{ comics { id } comic(slug: \"missing\") { id } chapters(comicSlug: \"x\") { id } crawlJobs { id } }")
+            .await;
+        assert_eq!(response.errors.len(), 4);
+        assert!(
+            response
+                .errors
+                .iter()
+                .all(|error| error.message.contains("Crawler gRPC client is unavailable"))
+        );
+
+        let comic = Comic::from(crawler_proto::Comic {
+            id: 1,
+            slug: "comic".to_owned(),
+            title: "Comic".to_owned(),
+            author: Some("Author".to_owned()),
+            description: None,
+            status: "ongoing".to_owned(),
+            chapter_count: Some(3),
+            crawling_status: "done".to_owned(),
+        });
+        assert_eq!(comic.id, "1");
+        assert_eq!(comic.author.as_deref(), Some("Author"));
+        let chapter = Chapter::from(crawler_proto::Chapter {
+            id: 2,
+            comic_id: 1,
+            chapter_number: "1".to_owned(),
+            position: 1,
+            crawling_status: "done".to_owned(),
+            origin_url: "https://example.test/chapter".to_owned(),
+        });
+        assert_eq!(chapter.comic_id, "1");
+        let job = CrawlJob::from(crawler_proto::CrawlJob {
+            id: 3,
+            slug: "comic".to_owned(),
+            job_type: "comic".to_owned(),
+            status: "failed".to_owned(),
+            error: Some("error".to_owned()),
+        });
+        assert_eq!(job.id, "3");
+        assert_eq!(job.error.as_deref(), Some("error"));
+        assert!(
+            graphql_error(tonic::Status::unavailable("offline"))
+                .message
+                .contains("offline")
+        );
+    }
 }

@@ -26,3 +26,16 @@ pub fn init_logging() {
         .with(fmt::layer())
         .init();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn emits_structured_trace_events_and_initializes_subscriber() {
+        trace("test.without-fields", &[]);
+        trace("test.with-fields", &[("key", "value".to_owned())]);
+        trace_error("test.error", &std::io::Error::other("expected"), &[]);
+        init_logging();
+    }
+}

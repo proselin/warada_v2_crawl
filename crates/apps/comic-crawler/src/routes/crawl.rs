@@ -689,3 +689,298 @@ async fn pull_and_store_image(
     rename_to_permanent(&temp_path, &file_path).await?;
     Ok((file_path, file_name))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::ChapterRecord;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    fn mock_server(responses: Vec<(u16, &'static str, &'static str)>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let base = format!("http://{address}");
+        thread::spawn(move || {
+            for (status, content_type, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 2048];
+                let _ = stream.read(&mut request).unwrap();
+                let reason = if status == 200 {
+                    "OK"
+                } else {
+                    "Internal Server Error"
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        base
+    }
+
+    struct RestoreTestEnv {
+        nettruyen_url: Option<std::ffi::OsString>,
+        database_path: Option<std::ffi::OsString>,
+    }
+
+    impl Drop for RestoreTestEnv {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(value) = self.nettruyen_url.take() {
+                    std::env::set_var("NETTRUYEN_URL", value);
+                } else {
+                    std::env::remove_var("NETTRUYEN_URL");
+                }
+                if let Some(value) = self.database_path.take() {
+                    std::env::set_var("DATABASE_PATH", value);
+                } else {
+                    std::env::remove_var("DATABASE_PATH");
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn queued_requests_retry_and_progress_cover_memory_and_sqlite_paths() {
+        let _env_lock = crate::test_support::ENV_LOCK.lock().await;
+        let previous = std::env::var("DATABASE_PATH").ok();
+        let path = std::env::temp_dir().join(format!(
+            "warada-routes-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        unsafe {
+            std::env::set_var("DATABASE_PATH", &path);
+        }
+        let state = AppState::default();
+        state.shared.database.initialize().await.unwrap();
+
+        let request = |body: &'static str| {
+            axum::http::Request::builder()
+                .body(Body::from(body))
+                .unwrap()
+        };
+        assert_eq!(
+            crawl_nettruyen_comic(State(state.clone()), request("{"))
+                .await
+                .err()
+                .unwrap()
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            crawl_nettruyen_comic(State(state.clone()), request("{}"))
+                .await
+                .err()
+                .unwrap()
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            crawl_nettruyen_comic(
+                State(state.clone()),
+                request(r#"{"slug-and-id":"queued-comic-1"}"#),
+            )
+            .await
+            .unwrap()
+            .into_response()
+            .status(),
+            StatusCode::ACCEPTED
+        );
+        assert_eq!(
+            crawl_nettruyen_comic(
+                State(state.clone()),
+                request(r#"{"slug-and-id":"queued-comic-1"}"#),
+            )
+            .await
+            .unwrap()
+            .into_response()
+            .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            retry_failed_chapters(State(state.clone()), AxumPath("missing".to_owned()),)
+                .await
+                .unwrap()
+                .into_response()
+                .status(),
+            StatusCode::ACCEPTED
+        );
+
+        let failed = state
+            .shared
+            .database
+            .claim_crawl_job("test-worker")
+            .await
+            .unwrap()
+            .unwrap();
+        state
+            .shared
+            .database
+            .finish_crawl_job(failed.id, "test-worker", false, Some("failed"))
+            .await
+            .unwrap();
+        let stream = progress_stream(State(state.clone()), AxumPath(failed.slug.clone()))
+            .await
+            .unwrap()
+            .into_response();
+        let mut body = stream.into_body().into_data_stream();
+        let event = tokio::time::timeout(Duration::from_secs(2), body.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&event).contains("failed"));
+        assert_eq!(
+            progress_stream(State(state.clone()), AxumPath("unknown".to_owned()))
+                .await
+                .unwrap_err(),
+            StatusCode::NOT_FOUND
+        );
+
+        drop(body);
+        unsafe {
+            if let Some(previous) = previous {
+                std::env::set_var("DATABASE_PATH", previous);
+            } else {
+                std::env::remove_var("DATABASE_PATH");
+            }
+        }
+        drop(state);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
+
+    #[tokio::test]
+    async fn retries_existing_comics_and_broadcasts_failed_chapter_events() {
+        let state = AppState::default();
+        let missing = retry_failed_chapters_impl(&state, "missing").await.unwrap();
+        assert_eq!(missing.status, 404);
+
+        state
+            .insert_comic(crate::state::ComicRecord {
+                id: 1,
+                slug: "retry-comic".to_owned(),
+                title: "Retry".to_owned(),
+                author: None,
+                description: None,
+                status: "ongoing".to_owned(),
+                chapter_count: Some(0),
+                crawling_status: "done".to_owned(),
+                origin_id: None,
+                origin_url: None,
+                origin_path_params: None,
+                thumb_image_id: None,
+            })
+            .await;
+        state.mark_active("retry-comic");
+        assert_eq!(
+            retry_failed_chapters_impl(&state, "retry-comic")
+                .await
+                .unwrap()
+                .status,
+            409
+        );
+        state.mark_inactive("retry-comic");
+        assert_eq!(
+            retry_failed_chapters_impl(&state, "retry-comic")
+                .await
+                .unwrap()
+                .status,
+            200
+        );
+
+        let mut events = state.shared.broadcaster.subscribe("retry-comic");
+        let chapters: Vec<_> = (0..5)
+            .map(|id| ChapterRecord {
+                id,
+                comic_id: 1,
+                chapter_num: id.to_string(),
+                position: id as i32,
+                crawling_status: "pending".to_owned(),
+                origin_url: String::new(),
+                origin_path_params: String::new(),
+            })
+            .collect();
+        run_chapter_crawl_loop(&state, "retry-comic", &chapters).await;
+        let mut received = Vec::new();
+        for _ in 0..chapters.len() * 3 {
+            received.push(events.try_recv().unwrap().event_type);
+        }
+        assert_eq!(
+            received
+                .iter()
+                .filter(|event| *event == "processing")
+                .count(),
+            5
+        );
+        assert_eq!(
+            received.iter().filter(|event| *event == "failed").count(),
+            5
+        );
+        assert_eq!(
+            received
+                .iter()
+                .filter(|event| *event == "completed")
+                .count(),
+            5
+        );
+    }
+
+    #[tokio::test]
+    async fn comic_crawl_persists_metadata_and_finishes_empty_chapters() {
+        let _env_lock = crate::test_support::ENV_LOCK.lock().await;
+        let _restore = RestoreTestEnv {
+            nettruyen_url: std::env::var_os("NETTRUYEN_URL"),
+            database_path: std::env::var_os("DATABASE_PATH"),
+        };
+        let base = mock_server(vec![
+            (
+                200,
+                "text/html",
+                r#"<script>gOpts.comicSlug = "crawl-test"; gOpts.comicId = "42";</script><script type="application/ld+json">{"@type":"ComicSeries","name":"Crawl Test","genre":["Action"]}</script>"#,
+            ),
+            (
+                200,
+                "application/json",
+                r#"{"data":[{"chapter_slug":"chapter-1","chapter_id":"1","chapter_name":"Chapter 1","chapter_num":1}]}"#,
+            ),
+            (200, "text/html", "<html></html>"),
+        ]);
+        unsafe {
+            std::env::set_var("NETTRUYEN_URL", &base);
+            std::env::remove_var("DATABASE_PATH");
+        }
+
+        let state = AppState::default();
+        let result = crawl_nettruyen_comic_impl(&state, "crawl-test-42")
+            .await
+            .unwrap();
+
+        assert_eq!(result.status, 200);
+        assert!(state.comic_exists_by_slug("crawl-test").await);
+        assert_eq!(state.shared.tags.read().unwrap()["action"].comic_count, 1);
+        let chapters = state.get_chapters_for_comic(1);
+        assert_eq!(chapters.len(), 1);
+        assert_eq!(chapters[0].crawling_status, "9999");
+        assert_eq!(
+            crawl_nettruyen_comic_impl(&state, "crawl-test-42")
+                .await
+                .unwrap()
+                .status,
+            409
+        );
+    }
+}

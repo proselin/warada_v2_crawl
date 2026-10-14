@@ -73,9 +73,6 @@ pub async fn preflight_checks() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::OnceLock;
-
-    static ENV_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
     fn restore(name: &str, value: Option<String>) {
         unsafe {
@@ -89,7 +86,7 @@ mod tests {
 
     #[tokio::test]
     async fn configuration_helpers_validate_values_and_preflight_database() {
-        let _lock = ENV_LOCK.get_or_init(Default::default).lock().await;
+        let _lock = crate::test_support::ENV_LOCK.lock().await;
         let keys = [
             "DATABASE_PATH",
             "CRAWL_API_KEY",

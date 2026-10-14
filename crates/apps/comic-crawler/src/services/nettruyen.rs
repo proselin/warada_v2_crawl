@@ -376,6 +376,54 @@ pub fn timestamp_tag() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    fn mock_server(responses: Vec<(u16, &'static str, &'static str)>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let base = format!("http://{address}");
+        let response_base = base.clone();
+        thread::spawn(move || {
+            for (status, content_type, body) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = [0; 2048];
+                let _ = stream.read(&mut request).unwrap();
+                let body = body.replace("$BASE", &response_base);
+                let reason = if status == 200 {
+                    "OK"
+                } else {
+                    "Internal Server Error"
+                };
+                write!(
+                    stream,
+                    "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+        });
+        base
+    }
+
+    struct RestoreEnv {
+        nettruyen_url: Option<std::ffi::OsString>,
+    }
+
+    impl Drop for RestoreEnv {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(value) = self.nettruyen_url.take() {
+                    std::env::set_var("NETTRUYEN_URL", value);
+                } else {
+                    std::env::remove_var("NETTRUYEN_URL");
+                }
+            }
+        }
+    }
 
     #[test]
     fn parsers_handle_jsonld_variants_and_invalid_markup() {
@@ -425,5 +473,57 @@ mod tests {
         let timestamp = timestamp_tag();
         assert_eq!(timestamp.len(), 15);
         assert_eq!(timestamp.as_bytes()[8], b'_');
+    }
+
+    #[tokio::test]
+    async fn nettruyen_fetchers_and_image_storage_handle_success_and_fallback() {
+        let _env_lock = crate::test_support::ENV_LOCK.lock().await;
+        let _restore = RestoreEnv {
+            nettruyen_url: std::env::var_os("NETTRUYEN_URL"),
+        };
+        let base = mock_server(vec![
+            (
+                200,
+                "text/html",
+                r#"<script>gOpts.comicSlug = "slug"; gOpts.comicId = "42";</script><script type="application/ld+json">{"@type":"ComicSeries","name":"Series","author":{"name":"Writer"},"description":"Description","genre":["Action"],"image":"https://images.test/cover.jpg"}</script>"#,
+            ),
+            (
+                200,
+                "application/json",
+                r#"{"data":[{"chapter_slug":"chapter-1","chapter_id":"1","chapter_name":"Chapter 1","chapter_num":1}]}"#,
+            ),
+            (
+                200,
+                "text/html",
+                r#"<img data-sv1="$BASE/bad.jpg" data-sv2="$BASE/good.jpg" />"#,
+            ),
+            (500, "text/plain", "unavailable"),
+            (200, "image/jpeg", "fallback-image"),
+        ]);
+        unsafe {
+            std::env::set_var("NETTRUYEN_URL", &base);
+        }
+
+        let detail = extract_comic_detail("slug-42").await.unwrap();
+        assert_eq!(detail.slug, "slug");
+        assert_eq!(detail.comic_id, "42");
+        assert_eq!(detail.title, "Series");
+        assert_eq!(detail.author.as_deref(), Some("Writer"));
+        assert_eq!(detail.description.as_deref(), Some("Description"));
+        assert_eq!(detail.genres, vec!["Action"]);
+
+        let chapters = fetch_chapter_list("slug", "42").await.unwrap();
+        assert_eq!(chapters.len(), 1);
+        assert_eq!(chapters[0].origin_path_params, "slug/chapter-1/1");
+        assert!(chapters[0].origin_url.starts_with(&base));
+
+        let candidates = fetch_chapter_image_candidates(&format!("{base}/chapter"))
+            .await
+            .unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            download_chapter_image(&candidates[0]).await.unwrap().buffer,
+            b"fallback-image"
+        );
     }
 }

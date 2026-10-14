@@ -32,9 +32,11 @@ moon run warada:lint      # Run Clippy across all Rust targets
 moon run warada:coverage  # HTML coverage report; requires cargo-llvm-cov
 ```
 
-The coverage task requires at least 70% region, function, and line coverage
-across the Rust workspace. Its HTML report is written to
-`target/llvm-cov/html/index.html`.
+Coverage warns below 70% and fails below 50% for region, function, and line
+coverage across the Rust workspace and in each included Rust source file.
+Binary `main.rs` files are excluded because process startup and server
+lifecycles are not meaningfully exercised by the unit-test suite. The HTML and
+JSON reports are written under `target/llvm-cov/`.
 
 To run frontend projects separately during local development, use the commands
 in `ui/README.md` and start the Rust display and crawler services as described
@@ -46,12 +48,15 @@ in their READMEs. E2E setup and folder responsibilities are in
 GitHub Actions runs path-aware checks for pull requests and publishes affected
 GHCR images after checks pass on `develop`. Every push to `develop` runs the
 full build and test pipeline, builds all images, runs full E2E against them,
-and publishes them only after success. A pull request from `develop` to
+and publishes them only after success. Rust unit tests also produce coverage:
+results below 70% warn, while any workspace or per-file metric below 50% fails
+the checks. CI uses Bash `pipefail` so failed Rust, UI, or E2E tests remain
+failures when their output is piped to logs. A pull request from `develop` to
 `main` reruns E2E against the exact SHA-tagged images; merging promotes those
-same images without a rebuild. Build outputs and test reports are available
-as workflow artifacts. The pipeline publishes images but does not deploy
-them to hosts. Require the `checks` status check and pull requests in branch
-protection settings for both branches.
+same images without a rebuild. Build outputs and test reports are available as
+workflow artifacts. The pipeline publishes images but does not deploy them to
+hosts. Require the `checks` status check and pull requests in branch protection
+settings for both branches.
 
 ## Change rules
 

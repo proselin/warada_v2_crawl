@@ -155,3 +155,23 @@ fn job_to_proto(job: comic_crawler::db::CrawlJob) -> crawler_proto::CrawlJob {
         error: job.error,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn crawl_job_conversion_preserves_optional_error() {
+        let job = super::job_to_proto(comic_crawler::db::CrawlJob {
+            id: 7,
+            slug: "comic".to_owned(),
+            job_type: "retry".to_owned(),
+            status: "failed".to_owned(),
+            error: Some("network error".to_owned()),
+        });
+
+        assert_eq!(job.id, 7);
+        assert_eq!(job.slug, "comic");
+        assert_eq!(job.job_type, "retry");
+        assert_eq!(job.status, "failed");
+        assert_eq!(job.error.as_deref(), Some("network error"));
+    }
+}
