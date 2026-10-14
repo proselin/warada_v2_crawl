@@ -1,4 +1,4 @@
-import { statusClass } from "@warada/ui-kit";
+import { Badge, statusClass } from "@warada/ui-kit";
 import { useEffect, useState } from "react";
 
 const query = `query Activity {
@@ -83,7 +83,9 @@ export default function Activity() {
               <span className={`dot ${statusClass(job.status)}`} />
               <span className="job-title">{job.slug}</span>
               <span className="job-type">{job.jobType}</span>
-              <span className={`status ${statusClass(job.status)}`}>{job.status}</span>
+              <Badge variant={statusClass(job.status) || "secondary"} className="status">
+                {job.status}
+              </Badge>
               {job.error && <span className="job-error">{job.error}</span>}
             </article>
           ))}

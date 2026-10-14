@@ -24,7 +24,11 @@ export default defineConfig({
             name: "warada_ui_kit",
             filename: "remoteEntry.js",
             manifest: true,
+            shared: {
+              react: { singleton: true },
+            },
             exposes: {
+              "./components": "./src/components.tsx",
               "./status-class": "./src/index.ts",
             },
             dts: {

@@ -1,9 +1,9 @@
 # Infrastructure
 
-The local Docker Compose stack runs PostgreSQL, the crawler HTTP/gRPC service,
+The local Docker Compose stack runs the crawler HTTP/gRPC service,
 the auth service, the GraphQL display service, the built frontend, and a Caddy
-gateway. Only the gateway is published to the host; services and PostgreSQL
-communicate over Compose's private network.
+gateway. Only the gateway is published to the host; services communicate over
+Compose's private network.
 
 ## Start
 
@@ -23,11 +23,9 @@ chmod 600 infra/secrets/jwt/private.pem
 docker compose --env-file infra/.env -f infra/compose.yaml up --build -d
 ```
 
-Use different random values for `POSTGRES_PASSWORD`, `CRAWL_API_KEY`,
-`AUTH_ADMIN_API_KEY`, and `AUTH_PASSWORD_PEPPER`. The admin key and password
-pepper must each be at least 32 bytes. `POSTGRES_PASSWORD` should be
-hexadecimal (as produced by `openssl rand -hex`) so it is safe in the generated
-PostgreSQL URL.
+Use different random values for `CRAWL_API_KEY`, `AUTH_ADMIN_API_KEY`, and
+`AUTH_PASSWORD_PEPPER`. The admin key and password pepper must each be at
+least 32 bytes.
 
 The gateway listens on `http://localhost:8080` (change `GATEWAY_PORT` to
 publish another host port). It routes `/` to the frontend, `/graphql` and
@@ -40,8 +38,33 @@ Set `PUBLIC_BASE_URL` to the public gateway origin before building for deploymen
 
 The crawler stores images in the persistent `crawler-images` volume. MinIO is
 not included because the current crawler implementation writes to local
-filesystem storage. PostgreSQL initializes the crawler schema on first
-creation of its data volume; the auth service creates its own tables at startup.
+filesystem storage. The crawler initializes SQLite schema at startup, and the
+auth service creates its own tables on the same `sqlite-data` volume.
+
+Each service image builds only its selected Rust crate or UI workspace and
+copies only the executable or static assets into the runtime image. Container-
+specific `.dockerignore` files keep unrelated source out of each build context;
+BuildKit caches Rust and npm dependencies between builds. The activity remote
+builds the UI-kit workspace first because it imports that package.
+
+## CI/CD
+
+Pull requests into `develop`, `test`, or `main` run checks for affected areas:
+Rust changes build and test the Rust workspace; UI changes build and test all
+UI workspaces without running Rust checks. Changes to Compose, Containerfiles,
+or E2E tests also run the full system E2E suite.
+
+Every push to `main` runs all Rust and UI checks, builds all six application
+images, tests those exact images with the full E2E suite, then publishes them
+to GHCR. Pushes to `develop` and `test` publish only images affected by the
+changes after relevant checks pass. Tags include the commit SHA and branch
+name; `main` also updates `latest`. Build outputs, image archives, and test
+reports are retained as workflow artifacts for 14 days. This pipeline
+publishes images but does not deploy them to servers.
+
+Protect `develop`, `test`, and `main` with pull-request-only changes and require
+the `checks` status check before merge. Configure branch protection in GitHub
+repository settings; the workflow cannot enforce those settings by itself.
 
 ## Operations
 

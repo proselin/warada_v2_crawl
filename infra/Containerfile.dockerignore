@@ -1,0 +1,14 @@
+.git
+.idea
+.moon
+docs/
+e2e/
+infra/
+ui/
+target/
+**/target/
+**/node_modules/
+**/dist/
+runtime/
+**/.env
+**/.env.local

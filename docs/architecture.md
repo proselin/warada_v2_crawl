@@ -7,7 +7,7 @@
 ├── crates/
 │   ├── apps/
 │   │   ├── auth-service/       Axum OAuth, user/client management, JWT
-│   │   ├── comic-crawler/      HTTP API, crawl queue, PostgreSQL, gRPC server
+│   │   ├── comic-crawler/      HTTP API, SQLite crawl queue, gRPC server
 │   │   └── display-service/    GraphQL API backed by crawler gRPC
 │   └── libs/
 │       └── crawler-proto/      Protobuf schema and generated tonic client/server
@@ -17,7 +17,7 @@
 │   │   └── activity-remote/    Independently built activity panel remote
 │   └── libs/
 │       └── ui-kit/             Shared UI package and federation remote
-├── infra/                      Docker Compose, Dockerfiles, Caddy gateway
+├── infra/                      Docker Compose, Containerfiles, Caddy gateway
 ├── e2e/                        Playwright system tests and disposable stack runner
 └── docs/                       Architecture and engineering guidance
 ```
@@ -32,7 +32,7 @@ root `package.json`.
 
 | Component | Responsibility | Internal address / protocol |
 | --- | --- | --- |
-| PostgreSQL | Persistent catalog, chapters, crawl jobs, users, OAuth clients, and authorization codes | `postgres:5432` |
+| SQLite | Persistent catalog, chapters, crawl jobs, users, OAuth clients, and authorization codes | Shared file at `/data/db/warada.sqlite` |
 | Crawler | Crawl queue worker, catalog storage, image storage, protected crawl HTTP API, and crawler gRPC server | HTTP `crawler:3000`, gRPC `crawler:50051` |
 | Auth | User and OAuth client management, OAuth grants, RS256 issuance and token verification | HTTP `auth:8081` |
 | Display | GraphQL read API that calls the crawler over gRPC | HTTP `display:3001` |
@@ -54,7 +54,7 @@ not replace application-level handling of dependency failures.
    the display service.
 3. Display calls the crawler's tonic/gRPC interface using types from
    `crates/libs/crawler-proto`.
-4. The crawler reads catalog, chapter, and crawl-job records from PostgreSQL.
+4. The crawler reads catalog, chapter, and crawl-job records from SQLite.
 5. Display maps protobuf records into GraphQL objects and returns JSON.
 6. The browser renders catalog and chapter data. The independently built
    activity remote queries crawl jobs through the same GraphQL route.
@@ -70,7 +70,7 @@ generates tonic client/server bindings from that file.
 ### Crawl submission
 
 The crawler's `/api/v1/crawl/nettruyen/comic` and retry endpoints validate the
-configured API key and enqueue work in PostgreSQL. The background queue worker
+configured API key and enqueue work in SQLite. The background queue worker
 claims pending jobs; progress can be observed through its progress endpoint.
 The HTTP service also exposes `/health`. Auth exposes `/health`; display has
 `/graphql` and `/playground`.
@@ -94,29 +94,27 @@ that exposure.
 
 ### Storage
 
-The crawler schema is initialized from
-`crates/apps/comic-crawler/migrations/0001_init_database.sql` when PostgreSQL
-creates a fresh data volume. Auth creates its own tables at application
-startup. Both services currently receive the same PostgreSQL database URL.
-Crawler image files are stored in the `crawler-images` Docker volume; MinIO is
-not part of the current implementation.
-
-The migration mount is an initialization hook, not a migration runner for an
-existing database volume. Schema changes on deployed volumes need an explicit
-migration and rollout strategy.
+The crawler initializes its schema from
+`crates/apps/comic-crawler/migrations/0001_init_database.sql`; auth initializes
+its tables at startup. Both services use `/data/db/warada.sqlite` on the shared
+`sqlite-data` volume. Crawler image files are stored in the `crawler-images`
+Docker volume; MinIO is not part of the current implementation.
 
 ## Frontend and Module Federation
 
 `ui/apps/display` is the host. It consumes:
 
 - `activity/Activity` from `ui/apps/activity-remote`.
-- `ui-kit/status-class` from `ui/libs/ui-kit`.
+- `ui-kit/status-class` and `ui-kit/components` from `ui/libs/ui-kit`.
 
 The host and activity remote use Rsbuild/Rspack with the Module Federation
 plugin. UI kit uses Rslib to produce an ESM package and an MF remote. React and
 React DOM are configured as singletons. TypeScript source and build configs use
 the native TypeScript Go compiler (`tsgo`); Rstest tests the UI kit with the
-Rslib adapter.
+Rslib adapter. The UI kit owns shadcn-inspired Button, Badge, and Card
+primitives, variants, and semantic CSS tokens. This is a small local component
+set following shadcn conventions, not the shadcn/ui generator or a Tailwind
+dependency. Styles are emitted alongside the federated component exposure.
 
 In Compose production, the host's remote manifest URLs are injected at build
 time using `PUBLIC_BASE_URL`. Caddy serves the remotes on the same origin under

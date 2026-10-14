@@ -171,8 +171,15 @@ pub(crate) fn unix_now() -> Result<i64, StatusCode> {
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-pub(crate) fn is_unique_violation(error: &tokio_postgres::Error) -> bool {
-    error
-        .code()
-        .is_some_and(|code| code == &tokio_postgres::error::SqlState::UNIQUE_VIOLATION)
+pub(crate) fn is_unique_violation(error: &tokio_rusqlite::Error) -> bool {
+    matches!(
+        error,
+        tokio_rusqlite::Error::Error(
+            tokio_rusqlite::rusqlite::Error::SqliteFailure(code, _)
+        ) if matches!(
+            code.extended_code,
+            tokio_rusqlite::rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE
+                | tokio_rusqlite::rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY
+        )
+    )
 }

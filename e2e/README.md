@@ -9,7 +9,7 @@ OAuth client-credentials token verification.
 
 ```text
 e2e/
-  fixtures/                 Disposable PostgreSQL seed data
+  fixtures/                 Disposable SQLite seed data
   helpers/                  GraphQL helper and isolated-stack runner
   page-objects/             Dashboard browser interactions and assertions
   specs/                    End-to-end test scenarios

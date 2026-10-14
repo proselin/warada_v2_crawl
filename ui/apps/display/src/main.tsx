@@ -1,5 +1,6 @@
 import { lazy, StrictMode, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { Badge, Button, Card } from "ui-kit/components";
 import { statusClass } from "ui-kit/status-class";
 import "./style.css";
 
@@ -140,12 +141,12 @@ function App() {
             {dashboard.comics.map((comic) => {
               const expanded = selectedSlug === comic.slug;
               return (
-                <article className="comic-card" key={comic.id}>
+                <Card as="article" className="comic-card" key={comic.id}>
                   <div className="card-top">
                     <span className="comic-mark">{comic.title.slice(0, 1).toUpperCase()}</span>
-                    <span className={`status ${statusClass(comic.crawlingStatus)}`}>
+                    <Badge variant={statusClass(comic.crawlingStatus) || "secondary"}>
                       {comic.crawlingStatus}
-                    </span>
+                    </Badge>
                   </div>
                   <h3>{comic.title}</h3>
                   <p className="author">{comic.author || "Unknown author"}</p>
@@ -154,14 +155,15 @@ function App() {
                     <span>{comic.chapterCount ?? 0} chapters</span>
                     <span>{comic.status}</span>
                   </div>
-                  <button
+                  <Button
+                    variant="ghost"
                     className="chapters-button"
                     onClick={() => setSelectedSlug(expanded ? null : comic.slug)}
                     aria-expanded={expanded}
                   >
                     {expanded ? "Hide chapters" : "View chapters"}
                     <span aria-hidden="true">{expanded ? "−" : "+"}</span>
-                  </button>
+                  </Button>
                   {expanded && (
                     <ol className="chapter-list">
                       {chapters.length === 0
@@ -174,7 +176,7 @@ function App() {
                         ))}
                     </ol>
                   )}
-                </article>
+                </Card>
               );
             })}
           </div>

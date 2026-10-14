@@ -5,7 +5,9 @@ export default defineConfig({
   testDir: "./specs",
   fullyParallel: false,
   workers: 1,
-  reporter: "list",
+  reporter: process.env.CI
+    ? [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]]
+    : "list",
   use: {
     baseURL: e2eBaseUrl,
     browserName: "chromium",

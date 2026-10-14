@@ -29,6 +29,16 @@ in `ui/README.md` and start the Rust display and crawler services as described
 in their READMEs. E2E setup and folder responsibilities are in
 `e2e/README.md`; infrastructure setup is in `infra/README.md`.
 
+## CI/CD
+
+GitHub Actions runs path-aware checks for pull requests and publishes affected
+GHCR images after checks pass on `develop` and `test`. A push to `main` runs
+all Rust and UI checks, builds all application images, runs the full E2E suite
+against those images, then publishes them. Build outputs and test reports are
+available as workflow artifacts. The pipeline publishes images but does not
+deploy them to hosts. Require the `checks` status check and pull requests in
+branch protection settings for all three branches.
+
 ## Change rules
 
 1. Read the relevant source, configuration, and tests before choosing an
@@ -54,8 +64,8 @@ in their READMEs. E2E setup and folder responsibilities are in
   through the `crawler-proto` build script.
 - Keep database ownership with the service that owns the data; use gRPC for the
   display-to-crawler contract instead of adding direct display database access.
-- Add or update tests with behavior changes. Database integration tests that
-  require an isolated PostgreSQL instance should state that requirement.
+- Add or update tests with behavior changes. Database integration tests should
+  use an isolated SQLite database.
 
 ## Frontend
 

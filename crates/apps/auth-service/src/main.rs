@@ -62,7 +62,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     validation.set_issuer(&[issuer.as_str()]);
     validation.set_audience(&[audience.as_str()]);
     let state = Arc::new(AppState {
-        db: DatabaseService::connect(&env::var("DATABASE_URL")?).await?,
+        db: DatabaseService::connect(&env::var("DATABASE_PATH")?)
+            .await
+            .map_err(std::io::Error::other)?,
         admin_key: Arc::from(admin_key.into_bytes()),
         password_pepper: Arc::from(password_pepper.into_bytes()),
         jwt_keys,

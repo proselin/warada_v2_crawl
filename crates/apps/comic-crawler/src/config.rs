@@ -25,18 +25,6 @@ fn validate_http_url(name: &str, value: &str) -> Result<String, String> {
     Ok(value.to_string())
 }
 
-fn validate_postgres_url(value: &str) -> Result<String, String> {
-    let parsed = url::Url::parse(value).map_err(|_| {
-        format!("DATABASE_URL must be a valid postgres:// or postgresql:// URL, got: {value}")
-    })?;
-    if !matches!(parsed.scheme(), "postgres" | "postgresql") {
-        return Err(format!(
-            "DATABASE_URL must use postgres:// or postgresql://, got: {value}"
-        ));
-    }
-    Ok(value.to_string())
-}
-
 pub fn nettruyen_url() -> String {
     let raw: String =
         env::var("NETTRUYEN_URL").unwrap_or_else(|_| "https://nettruyenar.com".to_string());
@@ -57,8 +45,7 @@ pub fn image_storage_dir() -> PathBuf {
 pub async fn preflight_checks() -> Result<(), String> {
     load_dotenv();
 
-    let database_url: String = require_var("DATABASE_URL")?;
-    let _ = validate_postgres_url(&database_url)?;
+    let _database_path = require_var("DATABASE_PATH")?;
 
     let api_key: String = require_var("CRAWL_API_KEY")?;
     if api_key.trim().is_empty() {
@@ -75,25 +62,10 @@ pub async fn preflight_checks() -> Result<(), String> {
         .map_err(|_| format!("PORT must be a valid TCP port, got: {port}"))?;
     let _ = port;
 
-    let (client, connection) = tokio_postgres::connect(&database_url, tokio_postgres::NoTls)
+    crate::db::Database::new()
+        .initialize()
         .await
-        .map_err(|err| format!("Unable to connect to PostgreSQL at DATABASE_URL: {err}"))?;
-    let queue_table = client
-        .query_one("SELECT to_regclass('public.crawl_jobs')::text", &[])
-        .await
-        .map_err(|err| format!("Unable to inspect crawl queue schema: {err}"))?
-        .get::<_, Option<String>>(0);
-    if queue_table.is_none() {
-        return Err(
-            "Database is not initialized; run migrations/0001_init_database.sql".to_string(),
-        );
-    }
-    tokio::spawn(async move {
-        if let Err(err) = connection.await {
-            tracing::warn!(error = %err, "postgres_connection_task_exited");
-        }
-    });
-    drop(client);
+        .map_err(|error| format!("Unable to initialize SQLite database: {error}"))?;
 
     Ok(())
 }
