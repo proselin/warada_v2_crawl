@@ -49,6 +49,16 @@ builds the UI-kit workspace first because it imports that package.
 
 ## CI/CD
 
+Run the full build-and-test pipeline locally, without publishing images:
+
+```sh
+npm run ci:local
+```
+
+This runs project checks and tests, builds all Compose images, then runs E2E
+against those images. Docker Compose and Playwright Chromium are required. Use
+`E2E_PORT=19080 npm run ci:local` to choose another local port.
+
 Pull requests into `develop`, `test`, or `main` run checks for affected areas:
 Rust changes build and test the Rust workspace; UI changes build and test all
 UI workspaces without running Rust checks. Changes to Compose, Containerfiles,
