@@ -182,6 +182,11 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         with:
           components: llvm-tools-preview
+      - name: Cache Rust crates and build output
+        if: needs.changes.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Install cargo-llvm-cov
         if: needs.changes.outputs.rust == 'true'
         run: cargo install --locked cargo-llvm-cov
@@ -191,6 +196,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      - name: Cache node_modules
+        id: node_modules_cache
+        if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true'
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-22-checks-${{ hashFiles('package-lock.json') }}
       - name: Prepare test report directory
         run: mkdir -p test-reports
       - name: Build Rust crates
@@ -202,7 +214,7 @@ jobs:
         if: needs.changes.outputs.rust == 'true'
         run: python3 scripts/rust_coverage.py 2>&1 | tee test-reports/cargo-test.log
       - name: Install UI dependencies
-        if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true'
+        if: (needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true') && steps.node_modules_cache.outputs.cache-hit != 'true'
         run: npm ci
       - name: Build UI workspaces
         if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.release == 'true'
@@ -295,6 +307,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      - name: Cache node_modules
+        id: node_modules_cache
+        if: needs.changes.outputs.release == 'true'
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-22-publish-${{ hashFiles('package-lock.json') }}
       - name: Normalize image name
         run: |
           echo "IMAGE_PREFIX=$(printf '%s' "$IMAGE_PREFIX" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
@@ -317,10 +336,12 @@ jobs:
           set -euo pipefail
           read -r -a services <<< "${SERVICES//,/ }"
           docker compose --env-file "$RUNNER_TEMP/compose.env" -f infra/compose.yaml build --pull "${services[@]}"
+      - name: Install E2E dependencies
+        if: needs.changes.outputs.release == 'true' && steps.node_modules_cache.outputs.cache-hit != 'true'
+        run: npm ci
       - name: Run full system E2E against built images
         if: needs.changes.outputs.release == 'true'
         run: |
-          npm ci
           mkdir -p test-reports
           npx playwright install --with-deps chromium
           npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
