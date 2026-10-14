@@ -3,11 +3,13 @@ ARG BINARY
 
 FROM rust:1-bookworm AS build
 ARG PACKAGE
+ARG BINARY
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
-    cargo build --locked --release --package "$PACKAGE"
+    cargo build --locked --release --package "$PACKAGE" --bin "$BINARY" \
+    && test -x "/src/target/release/$BINARY"
 
 FROM debian:bookworm-slim
 RUN apt-get update \
