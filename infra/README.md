@@ -59,21 +59,25 @@ This runs project checks and tests, builds all Compose images, then runs E2E
 against those images. Docker Compose and Playwright Chromium are required. Use
 `E2E_PORT=19080 npm run ci:local` to choose another local port.
 
-Pull requests into `develop`, `test`, or `main` run checks for affected areas:
+Pull requests into `develop` or `main` run checks for affected areas:
 Rust changes build and test the Rust workspace; UI changes build and test all
 UI workspaces without running Rust checks. Changes to Compose, Containerfiles,
 or E2E tests also run the full system E2E suite.
 
-Every push to `main` runs all Rust and UI checks, builds all six application
-images, tests those exact images with the full E2E suite, then publishes them
-to GHCR. Pushes to `develop` and `test` publish only images affected by the
-changes after relevant checks pass. Tags include the commit SHA and branch
-name; `main` also updates `latest`. Build outputs, image archives, and test
-reports are retained as workflow artifacts for 14 days. This pipeline
+Each push to `develop` runs the full build and test pipeline, builds all six
+images, runs full system E2E against them, and publishes them to GHCR only if
+the tests pass. A pull request from `develop` to `main` pulls those exact
+SHA-tagged images and reruns full system E2E. Merging that pull request
+promotes the same images to `main` and `latest` without rebuilding. Wait for
+the `develop` push workflow to finish before opening/updating the release pull
+request.
+
+Tags include the commit SHA and `develop`. Build outputs, image archives, and
+test reports are retained as workflow artifacts for 14 days. The pipeline
 publishes images but does not deploy them to servers.
 
-Protect `develop`, `test`, and `main` with pull-request-only changes and require
-the `checks` status check before merge. Configure branch protection in GitHub
+Protect `develop` and `main` with pull-request-only changes and require the
+`checks` status check before merge. Configure branch protection in GitHub
 repository settings; the workflow cannot enforce those settings by itself.
 
 ## Operations

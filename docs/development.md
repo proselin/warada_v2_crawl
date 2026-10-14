@@ -32,12 +32,14 @@ in their READMEs. E2E setup and folder responsibilities are in
 ## CI/CD
 
 GitHub Actions runs path-aware checks for pull requests and publishes affected
-GHCR images after checks pass on `develop` and `test`. A push to `main` runs
-all Rust and UI checks, builds all application images, runs the full E2E suite
-against those images, then publishes them. Build outputs and test reports are
-available as workflow artifacts. The pipeline publishes images but does not
-deploy them to hosts. Require the `checks` status check and pull requests in
-branch protection settings for all three branches.
+GHCR images after checks pass on `develop`. Every push to `develop` runs the
+full build and test pipeline, builds all images, runs full E2E against them,
+and publishes them only after success. A pull request from `develop` to
+`main` reruns E2E against the exact SHA-tagged images; merging promotes those
+same images without a rebuild. Build outputs and test reports are available
+as workflow artifacts. The pipeline publishes images but does not deploy
+them to hosts. Require the `checks` status check and pull requests in branch
+protection settings for both branches.
 
 ## Change rules
 

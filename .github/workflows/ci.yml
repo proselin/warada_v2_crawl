@@ -2,9 +2,10 @@ name: CI and publish
 
 on:
   pull_request:
-    branches: [develop, test, main]
+    types: [opened, synchronize, reopened, closed]
+    branches: [develop, main]
   push:
-    branches: [develop, test, main]
+    branches: [develop]
 
 permissions:
   contents: read
@@ -35,6 +36,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           REF_NAME: ${{ github.ref_name }}
+          GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
 
@@ -136,7 +138,17 @@ jobs:
             esac
           done <<< "$changed"
 
-          if [[ "$EVENT_NAME" == push && "$REF_NAME" == main ]]; then
+          if [[ "$EVENT_NAME" == pull_request && "$GITHUB_BASE_REF" == main ]]; then
+            rust=true
+            ui=true
+            infra=true
+            e2e=true
+            release=true
+            publish=true
+            add_rust_services
+            add_ui_services
+          fi
+          if [[ "$EVENT_NAME" == push && "$REF_NAME" == develop ]]; then
             rust=true
             ui=true
             infra=true
@@ -153,7 +165,11 @@ jobs:
 
   checks:
     needs: changes
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -189,10 +205,36 @@ jobs:
         if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true'
         run: npm run typecheck:e2e 2>&1 | tee test-reports/e2e-typecheck.log
       - name: Install Playwright browser
-        if: needs.changes.outputs.e2e == 'true' && needs.changes.outputs.release != 'true'
+        if: needs.changes.outputs.e2e == 'true' && (needs.changes.outputs.release != 'true' || github.event_name == 'pull_request')
         run: npx playwright install --with-deps chromium
+      - name: Sign in to GHCR for tested image pull
+        if: needs.changes.outputs.release == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'develop'
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull develop images for release verification
+        if: needs.changes.outputs.release == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'develop'
+        env:
+          IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE_PREFIX="ghcr.io/${GITHUB_REPOSITORY,,}"
+          IMAGE_PREFIX="$IMAGE_PREFIX" IMAGE_TAG="$IMAGE_TAG" \
+            docker compose --env-file infra/.env.example -f infra/compose.yaml pull \
+              crawler auth display frontend activity ui-kit
       - name: Run system E2E
         if: needs.changes.outputs.e2e == 'true' && needs.changes.outputs.release != 'true'
+        run: npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
+      - name: Run system E2E against develop images
+        if: needs.changes.outputs.release == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'develop'
+        env:
+          IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+          IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+          E2E_USE_BUILT_IMAGES: "true"
+          E2E_PORT: "18080"
+        run: npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
+      - name: Run system E2E for other release pull requests
+        if: needs.changes.outputs.release == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.ref != 'develop'
         run: npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
       - name: Validate Compose configuration
         if: needs.changes.outputs.infra == 'true'
@@ -307,8 +349,37 @@ jobs:
             docker push "$image:$IMAGE_TAG"
             docker tag "$image:$IMAGE_TAG" "$image:$CHANNEL"
             docker push "$image:$CHANNEL"
-            if [[ "$CHANNEL" == main ]]; then
-              docker tag "$image:$IMAGE_TAG" "$image:latest"
-              docker push "$image:latest"
-            fi
+          done
+
+  promote:
+    needs: changes
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'develop'
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+    env:
+      IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+      IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Normalize image prefix
+        run: echo "IMAGE_PREFIX=$(printf '%s' "$IMAGE_PREFIX" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+      - name: Sign in to GHCR
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote tested images to main
+        run: |
+          set -euo pipefail
+          for service in crawler auth display frontend activity ui-kit; do
+            image="$IMAGE_PREFIX/$service"
+            docker pull "$image:$IMAGE_TAG"
+            docker tag "$image:$IMAGE_TAG" "$image:main"
+            docker tag "$image:$IMAGE_TAG" "$image:latest"
+            docker push "$image:main"
+            docker push "$image:latest"
           done
