@@ -1,0 +1,34 @@
+:8080 {
+	@tools path /tools /tools/*
+	handle @tools {
+		uri strip_prefix /tools
+		reverse_proxy {$TOOLS_BACKEND_URL}
+	}
+
+	handle_path /remotes/activity/* {
+		reverse_proxy activity:80
+	}
+
+	handle_path /remotes/ui-kit/* {
+		reverse_proxy ui-kit:80
+	}
+
+	@graphql path /graphql /playground
+	handle @graphql {
+		reverse_proxy display:3001
+	}
+
+	@auth path /oauth/* /v1/*
+	handle @auth {
+		reverse_proxy auth:8081
+	}
+
+	@crawler path /api/* /health
+	handle @crawler {
+		reverse_proxy crawler:3000
+	}
+
+	handle {
+		reverse_proxy frontend:80
+	}
+}

@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package warada.crawler.v1;
+
+service Crawler {
+  rpc ListComics (Empty) returns (ListComicsResponse);
+  rpc GetComic (ComicRequest) returns (ComicResponse);
+  rpc ListChapters (ComicRequest) returns (ListChaptersResponse);
+  rpc ListCrawlJobs (Empty) returns (ListCrawlJobsResponse);
+}
+
+message Empty {}
+
+message ComicRequest {
+  string slug = 1;
+}
+
+message Comic {
+  int64 id = 1;
+  string slug = 2;
+  string title = 3;
+  optional string author = 4;
+  optional string description = 5;
+  string status = 6;
+  optional int32 chapter_count = 7;
+  string crawling_status = 8;
+}
+
+message ComicResponse {
+  Comic comic = 1;
+}
+
+message ListComicsResponse {
+  repeated Comic comics = 1;
+}
+
+message Chapter {
+  int64 id = 1;
+  int64 comic_id = 2;
+  string chapter_number = 3;
+  int32 position = 4;
+  string crawling_status = 5;
+  string origin_url = 6;
+}
+
+message ListChaptersResponse {
+  repeated Chapter chapters = 1;
+}
+
+message CrawlJob {
+  int64 id = 1;
+  string slug = 2;
+  string job_type = 3;
+  string status = 4;
+  optional string error = 5;
+}
+
+message ListCrawlJobsResponse {
+  repeated CrawlJob jobs = 1;
+}

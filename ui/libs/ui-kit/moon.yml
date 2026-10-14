@@ -1,0 +1,15 @@
+language: javascript
+
+tasks:
+  build:
+    command: npm run build
+    outputs:
+      - dist
+    options:
+      cache: false
+  test:
+    command: npm test
+    deps:
+      - build
+  typecheck:
+    command: npm run typecheck

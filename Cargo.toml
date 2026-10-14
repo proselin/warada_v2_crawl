@@ -1,3 +1,8 @@
 [workspace]
-members = ["comic-crawler", "auth-service"]
+members = [
+    "crates/apps/auth-service",
+    "crates/apps/comic-crawler",
+    "crates/apps/display-service",
+    "crates/libs/crawler-proto",
+]
 resolver = "3"

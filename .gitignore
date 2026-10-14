@@ -12,3 +12,7 @@ target
 .env
 .env.local
 runtime
+node_modules/
+.moon/cache/
+playwright-report/
+test-results/

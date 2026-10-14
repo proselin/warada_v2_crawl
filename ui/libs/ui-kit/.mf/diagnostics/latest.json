@@ -1,0 +1,10 @@
+{
+  "latestErrorEvent": {
+    "code": "TYPE-001",
+    "message": "Failed to generate type declaration. Execute the below cmd to reproduce and fix the error. #TYPE-001\nargs: {\"cmd\":\"npx tsgo --project /Users/hungnq18/Documents/Projects/github/warada_v2_crawl/ui/libs/ui-kit/node_modules/.federation/tsconfig.230dc21064e5ad68a121e45ab0ac6c97.json\"}\nView the docs to see how to solve: https://module-federation.io/guide/troubleshooting/type#type-001",
+    "args": {
+      "cmd": "npx tsgo --project /Users/hungnq18/Documents/Projects/github/warada_v2_crawl/ui/libs/ui-kit/node_modules/.federation/tsconfig.230dc21064e5ad68a121e45ab0ac6c97.json"
+    },
+    "timestamp": 1791942590603
+  }
+}

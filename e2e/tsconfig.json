@@ -1,0 +1,10 @@
+{
+  "extends": "../ui/tsconfig.base.json",
+  "include": [
+    "specs/**/*.ts",
+    "page-objects/**/*.ts",
+    "helpers/**/*.ts",
+    "utils/**/*.ts",
+    "playwright.config.ts"
+  ]
+}

@@ -1,0 +1,15 @@
+
+javascript:
+  packageManager: npm
+
+npm:
+  version: "11.16.0"
+
+
+node:
+  version: ~24
+  syncVersionManagerConfig: nodenv
+
+
+rust:
+  syncToolchainConfig: false

@@ -1,0 +1,17 @@
+language: rust
+
+tasks:
+  check:
+    command: cargo check
+    options:
+      cache: false
+
+  test:
+    command: cargo test
+    options:
+      cache: false
+
+  build:
+    command: cargo build
+    options:
+      cache: false

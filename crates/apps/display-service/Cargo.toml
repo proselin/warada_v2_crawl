@@ -1,0 +1,12 @@
+[package]
+name = "display_service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-graphql = "7"
+async-graphql-axum = "7"
+axum = "0.8"
+crawler-proto = { path = "../../libs/crawler-proto" }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+tonic = { version = "0.14", features = ["transport"] }

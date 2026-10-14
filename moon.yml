@@ -1,0 +1,22 @@
+language: rust
+
+tasks:
+  check:
+    command: cargo check --workspace
+    options:
+      cache: false
+
+  test:
+    command: cargo test --workspace
+    options:
+      cache: false
+
+  build:
+    command: cargo build --workspace
+    options:
+      cache: false
+
+  deps-update:
+    command: cargo update
+    options:
+      cache: false

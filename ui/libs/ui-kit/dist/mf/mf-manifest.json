@@ -1,0 +1,46 @@
+{
+  "id": "warada_ui_kit",
+  "name": "warada_ui_kit",
+  "metaData": {
+    "name": "warada_ui_kit",
+    "globalName": "warada_ui_kit",
+    "buildInfo": {
+      "buildVersion": "0.1.0",
+      "buildName": "@warada/ui-kit"
+    },
+    "publicPath": "/remotes/ui-kit/",
+    "remoteEntry": {
+      "name": "remoteEntry.js",
+      "path": "",
+      "type": "global"
+    },
+    "types": {
+      "path": "",
+      "name": "",
+      "zip": "@mf-types.zip",
+      "api": "@mf-types.d.ts"
+    },
+    "pluginVersion": "2.9.2"
+  },
+  "shared": [],
+  "remotes": [],
+  "exposes": [
+    {
+      "id": "warada_ui_kit:status-class",
+      "name": "status-class",
+      "assets": {
+        "js": {
+          "sync": [
+            "__federation_expose_status_class.a8443dcbee.js"
+          ],
+          "async": []
+        },
+        "css": {
+          "sync": [],
+          "async": []
+        }
+      },
+      "path": "./status-class"
+    }
+  ]
+}

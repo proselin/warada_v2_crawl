@@ -1,0 +1,32 @@
+{
+  "name": "warada-v2-crawl",
+  "private": true,
+  "workspaces": [
+    "ui/apps/*",
+    "ui/libs/*"
+  ],
+  "scripts": {
+    "check": "moon run warada:check && npm run typecheck:ui && npm run typecheck:e2e && npm run build:frontend",
+    "test": "moon run warada:test && moon run ui-kit:test",
+    "test:e2e": "node e2e/helpers/run.mjs",
+    "build": "npm run build:all",
+    "build:frontend": "moon run ui-kit:build && moon run activity-remote:build && moon run display-host:build",
+    "build:all": "moon run warada:build && npm run build:frontend",
+    "test:ui": "moon run ui-kit:test",
+    "typecheck:ui": "moon run ui-kit:typecheck activity-remote:typecheck display-host:typecheck",
+    "typecheck:e2e": "tsgo -p e2e/tsconfig.json",
+    "deps:update:rust": "moon run warada:deps-update",
+    "deps:update:npm": "npm update --save-prefix='^'",
+    "deps:update": "npm run deps:update:rust && npm run deps:update:npm"
+  },
+  "devDependencies": {
+    "@moonrepo/cli": "^2.6.1",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260707.2",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "npm@11.16.0"
+}

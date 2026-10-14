@@ -1,0 +1,162 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-warada}
+      POSTGRES_DB: ${POSTGRES_DB:-warada}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/.env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../crates/apps/comic-crawler/migrations/0001_init_database.sql:/docker-entrypoint-initdb.d/001-crawler.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  crawler:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      args:
+        PACKAGE: comic_crawler
+        BINARY: comic_crawler
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-warada}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/.env}@postgres:5432/${POSTGRES_DB:-warada}
+      CRAWL_API_KEY: ${CRAWL_API_KEY:?Set CRAWL_API_KEY in infra/.env}
+      NETTRUYEN_URL: ${NETTRUYEN_URL:-https://nettruyenar.com}
+      IMAGE_STORAGE_DIR: /data/images
+      GRPC_ADDR: 0.0.0.0:50051
+      RUST_LOG: info
+    volumes:
+      - crawler-images:/data/images
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  auth:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      args:
+        PACKAGE: auth_service
+        BINARY: auth_service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-warada}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/.env}@postgres:5432/${POSTGRES_DB:-warada}
+      AUTH_ADDR: 0.0.0.0:8081
+      AUTH_ADMIN_API_KEY: ${AUTH_ADMIN_API_KEY:?Set AUTH_ADMIN_API_KEY in infra/.env}
+      AUTH_PASSWORD_PEPPER: ${AUTH_PASSWORD_PEPPER:?Set AUTH_PASSWORD_PEPPER in infra/.env}
+      JWT_PRIVATE_KEY_PATH: /run/jwt/private.pem
+      JWT_PUBLIC_KEYS_DIR: /run/jwt/public
+      JWT_SIGNING_KEY_ID: ${JWT_SIGNING_KEY_ID:-current}
+      JWT_LEGACY_KEY_ID: ${JWT_LEGACY_KEY_ID:-current}
+      JWT_ISSUER: ${JWT_ISSUER:-http://localhost:8080/}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-warada-api}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+      RUST_LOG: info
+    volumes:
+      - ${JWT_SECRETS_DIR:-./secrets/jwt}:/run/jwt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  display:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      args:
+        PACKAGE: display_service
+        BINARY: display_service
+    restart: unless-stopped
+    environment:
+      DISPLAY_ADDR: 0.0.0.0:3001
+      CRAWLER_GRPC_URL: http://crawler:50051
+    depends_on:
+      crawler:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3001/playground"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: infra/frontend.Dockerfile
+      args:
+        APP_PACKAGE: "@warada/display-host"
+        APP_PATH: ui/apps/display
+        MF_ACTIVITY_REMOTE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}/remotes/activity/mf-manifest.json
+        MF_UI_KIT_REMOTE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}/remotes/ui-kit/mf-manifest.json
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  activity:
+    build:
+      context: ..
+      dockerfile: infra/frontend.Dockerfile
+      args:
+        APP_PACKAGE: "@warada/activity-remote"
+        APP_PATH: ui/apps/activity-remote
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/mf-manifest.json"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  ui-kit:
+    build:
+      context: ..
+      dockerfile: infra/ui-kit.Dockerfile
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/mf-manifest.json"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      TOOLS_BACKEND_URL: ${TOOLS_BACKEND_URL:-http://crawler:3000}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      auth:
+        condition: service_healthy
+      crawler:
+        condition: service_healthy
+      display:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      activity:
+        condition: service_healthy
+      ui-kit:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  crawler-images:

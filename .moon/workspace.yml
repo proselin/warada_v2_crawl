@@ -1,0 +1,9 @@
+projects:
+  warada: .
+  auth-service: crates/apps/auth-service
+  comic-crawler: crates/apps/comic-crawler
+  crawler-proto: crates/libs/crawler-proto
+  display-service: crates/apps/display-service
+  display-host: ui/apps/display
+  activity-remote: ui/apps/activity-remote
+  ui-kit: ui/libs/ui-kit

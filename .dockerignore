@@ -1,0 +1,12 @@
+.git
+.idea
+.moon
+target
+**/target
+**/node_modules
+**/dist
+runtime
+**/.env
+**/.env.local
+infra/.env
+infra/secrets
