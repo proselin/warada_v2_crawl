@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       rust: ${{ steps.paths.outputs.rust }}
       ui: ${{ steps.paths.outputs.ui }}
@@ -25,7 +25,7 @@ jobs:
       publish: ${{ steps.paths.outputs.publish }}
       services: ${{ steps.paths.outputs.services }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - id: paths
@@ -153,12 +153,12 @@ jobs:
 
   checks:
     needs: changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         if: needs.changes.outputs.rust == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true'
         with:
           node-version: 22
@@ -199,7 +199,7 @@ jobs:
         run: docker compose --env-file infra/.env.example -f infra/compose.yaml config --quiet
       - name: Upload build and test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-and-test-${{ github.run_id }}
           path: |
@@ -219,7 +219,7 @@ jobs:
   publish:
     needs: [changes, checks]
     if: github.event_name == 'push' && needs.changes.outputs.publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
@@ -230,8 +230,8 @@ jobs:
       CI: "true"
       E2E_USE_BUILT_IMAGES: "true"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         if: needs.changes.outputs.release == 'true'
         with:
           node-version: 22
@@ -279,7 +279,7 @@ jobs:
           docker image save --output "$RUNNER_TEMP/container-images.tar" "${images[@]}"
       - name: Upload image and E2E artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: container-images-and-e2e-${{ github.run_id }}
           path: |
