@@ -1,0 +1,278 @@
+name: CI and publish
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+      packages: read
+    env:
+      CI: "true"
+      MOON_RUN_ALL: ${{ github.event_name == 'push' || github.event.pull_request.base.ref == 'main' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Cache node_modules
+        id: node_modules_cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-24-checks-${{ hashFiles('package-lock.json') }}
+      - name: Install Node dependencies
+        if: steps.node_modules_cache.outputs.cache-hit != 'true'
+        run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - name: Cache Rust dependencies and build output
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Install cargo-llvm-cov
+        run: cargo install --locked cargo-llvm-cov
+      - name: Prepare report directory
+        run: mkdir -p test-reports
+      - name: Run Rust coverage through Moon
+        run: |
+          set -euo pipefail
+          if [[ "$MOON_RUN_ALL" == "true" ]]; then
+            npx moon ci --force warada:coverage
+          else
+            npx moon ci warada:coverage
+          fi 2>&1 | tee test-reports/rust-coverage.log
+      - name: Run Moon checks, tests, and builds
+        run: |
+          set -euo pipefail
+          targets=(
+            warada:fmt
+            warada:lint
+            warada:check
+            warada:build-release
+            warada:e2e-typecheck
+            ui-kit:test
+            ui-kit:typecheck
+            ui-kit:build
+            activity-remote:typecheck
+            activity-remote:build
+            display-host:typecheck
+            display-host:build
+          )
+          if [[ "$MOON_RUN_ALL" == "true" ]]; then
+            npx moon ci --force "${targets[@]}"
+          else
+            npx moon ci "${targets[@]}"
+          fi 2>&1 | tee test-reports/moon-ci.log
+      - name: Install Playwright Chromium
+        if: github.event_name == 'pull_request'
+        run: npx playwright install --with-deps chromium
+      - name: Run affected E2E tests through Moon
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'main'
+        env:
+          CONTAINER_HANDLER: docker
+        run: |
+          set -euo pipefail
+          npx moon ci warada:e2e 2>&1 | tee test-reports/e2e-test.log
+      - name: Sign in to GHCR for release verification
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull tested develop images
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
+        env:
+          IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+          IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE_PREFIX="${IMAGE_PREFIX,,}"
+          IMAGE_PREFIX="$IMAGE_PREFIX" IMAGE_TAG="$IMAGE_TAG" \
+            docker compose --env-file infra/.env.example -f infra/compose.yaml pull \
+              crawler auth display frontend activity ui-kit
+      - name: Run E2E against the tested develop images
+        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'develop'
+        env:
+          CONTAINER_HANDLER: docker
+          E2E_USE_BUILT_IMAGES: "true"
+          E2E_PORT: "18080"
+          IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+          IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          npx moon ci --force warada:e2e 2>&1 | tee test-reports/e2e-test.log
+      - name: Validate Compose configuration
+        run: docker compose --env-file infra/.env.example -f infra/compose.yaml config --quiet
+      - name: Upload build and test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-and-test-${{ github.run_id }}
+          path: |
+            test-reports/
+            ui/libs/ui-kit/test-reports/
+            target/release/auth_service
+            target/release/comic_crawler
+            target/release/display_service
+            target/llvm-cov/
+            ui/apps/display/dist/
+            ui/apps/activity-remote/dist/
+            ui/libs/ui-kit/dist/
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish:
+    needs: checks
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+      IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+      E2E_PORT: "18080"
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Cache node_modules
+        id: node_modules_cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-24-publish-${{ hashFiles('package-lock.json') }}
+      - name: Install Node dependencies
+        if: steps.node_modules_cache.outputs.cache-hit != 'true'
+        run: npm ci
+      - name: Normalize image prefix
+        run: echo "IMAGE_PREFIX=${IMAGE_PREFIX,,}" >> "$GITHUB_ENV"
+      - name: Prepare Compose environment
+        run: |
+          {
+            printf 'CRAWL_API_KEY=%s\n' "$(openssl rand -hex 32)"
+            printf 'AUTH_ADMIN_API_KEY=%s\n' "$(openssl rand -hex 32)"
+            printf 'AUTH_PASSWORD_PEPPER=%s\n' "$(openssl rand -hex 32)"
+            printf 'IMAGE_PREFIX=%s\n' "${IMAGE_PREFIX,,}"
+            printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG"
+            printf 'GATEWAY_PORT=%s\n' "$E2E_PORT"
+            printf 'PUBLIC_BASE_URL=http://127.0.0.1:%s\n' "$E2E_PORT"
+          } > "$RUNNER_TEMP/compose.env"
+      - name: Build service images
+        id: build_images
+        run: |
+          docker compose --env-file "$RUNNER_TEMP/compose.env" -f infra/compose.yaml \
+            build --pull crawler auth display frontend activity ui-kit
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E against built images
+        env:
+          CONTAINER_HANDLER: docker
+          E2E_USE_BUILT_IMAGES: "true"
+          IMAGE_PREFIX: ${{ env.IMAGE_PREFIX }}
+          IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          set -euo pipefail
+          npx moon ci --force warada:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
+      - name: Save built images as an artifact
+        if: always() && steps.build_images.outcome == 'success'
+        run: |
+          set -euo pipefail
+          docker image save --output "$RUNNER_TEMP/container-images.tar" \
+            "$IMAGE_PREFIX/crawler:$IMAGE_TAG" \
+            "$IMAGE_PREFIX/auth:$IMAGE_TAG" \
+            "$IMAGE_PREFIX/display:$IMAGE_TAG" \
+            "$IMAGE_PREFIX/frontend:$IMAGE_TAG" \
+            "$IMAGE_PREFIX/activity:$IMAGE_TAG" \
+            "$IMAGE_PREFIX/ui-kit:$IMAGE_TAG"
+      - name: Upload images and E2E reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: container-images-and-e2e-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/container-images.tar
+            playwright-report/
+            test-results/
+            ${{ runner.temp }}/e2e-test.log
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Sign in to GHCR
+        if: success()
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested images
+        if: success()
+        run: |
+          set -euo pipefail
+          for service in crawler auth display frontend activity ui-kit; do
+            image="$IMAGE_PREFIX/$service"
+            docker push "$image:$IMAGE_TAG"
+            docker tag "$image:$IMAGE_TAG" "$image:develop"
+            docker push "$image:develop"
+          done
+
+  promote:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'develop'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+      IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Normalize image prefix
+        run: echo "IMAGE_PREFIX=${IMAGE_PREFIX,,}" >> "$GITHUB_ENV"
+      - name: Sign in to GHCR
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote tested images to main
+        run: |
+          set -euo pipefail
+          for service in crawler auth display frontend activity ui-kit; do
+            image="$IMAGE_PREFIX/$service"
+            docker pull "$image:$IMAGE_TAG"
+            docker tag "$image:$IMAGE_TAG" "$image:main"
+            docker tag "$image:$IMAGE_TAG" "$image:latest"
+            docker push "$image:main"
+            docker push "$image:latest"
+          done
