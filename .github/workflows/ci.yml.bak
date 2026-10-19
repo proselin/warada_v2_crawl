@@ -1,0 +1,424 @@
+name: CI and publish
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      rust: ${{ steps.paths.outputs.rust }}
+      ui: ${{ steps.paths.outputs.ui }}
+      infra: ${{ steps.paths.outputs.infra }}
+      e2e: ${{ steps.paths.outputs.e2e }}
+      release: ${{ steps.paths.outputs.release }}
+      publish: ${{ steps.paths.outputs.publish }}
+      services: ${{ steps.paths.outputs.services }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: paths
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          rust=false
+          ui=false
+          infra=false
+          e2e=false
+          release=false
+          publish=false
+          services=()
+          add_service() {
+            case " ${services[*]} " in
+              *" $1 "*) ;;
+              *) services+=("$1") ;;
+            esac
+          }
+          add_rust_services() {
+            add_service crawler
+            add_service auth
+            add_service display
+          }
+          add_ui_services() {
+            add_service frontend
+            add_service activity
+            add_service ui-kit
+          }
+
+          if [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            changed="$(git ls-files)"
+          else
+            changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          fi
+
+          while IFS= read -r file; do
+            case "$file" in
+                Cargo.toml|Cargo.lock|crates/*)
+                  rust=true
+                  publish=true
+                  if [[ "$file" == Cargo.toml || "$file" == Cargo.lock ]]; then
+                    add_rust_services
+                  elif [[ "$file" == crates/apps/comic-crawler/* ]]; then
+                    add_service crawler
+                  elif [[ "$file" == crates/apps/auth-service/* ]]; then
+                    add_service auth
+                  elif [[ "$file" == crates/apps/display-service/* ]]; then
+                    add_service display
+                  elif [[ "$file" == crates/libs/crawler-proto/* ]]; then
+                    add_service crawler
+                    add_service display
+                  else
+                    add_rust_services
+                  fi
+                  ;;
+                package.json|package-lock.json|ui/*)
+                  ui=true
+                  publish=true
+                  add_ui_services
+                  ;;
+                infra/compose.yaml)
+                  infra=true
+                  e2e=true
+                  publish=true
+                  add_rust_services
+                  add_ui_services
+                  ;;
+                infra/Containerfile|infra/Containerfile.dockerignore)
+                  infra=true
+                  e2e=true
+                  publish=true
+                  add_rust_services
+                  ;;
+                infra/frontend.Containerfile|infra/frontend.Containerfile.dockerignore)
+                  infra=true
+                  e2e=true
+                  publish=true
+                  add_service frontend
+                  add_service activity
+                  ;;
+                infra/ui-kit.Containerfile|infra/ui-kit.Containerfile.dockerignore)
+                  infra=true
+                  e2e=true
+                  publish=true
+                  add_service ui-kit
+                  ;;
+                infra/Caddyfile)
+                  infra=true
+                  e2e=true
+                  ;;
+                infra/*)
+                  infra=true
+                  ;;
+                e2e/*)
+                  e2e=true
+                  ;;
+                .github/workflows/*)
+                  rust=true
+                  ui=true
+                  ;;
+                moon.yml|scripts/rust_coverage.py)
+                  rust=true
+                  ;;
+            esac
+          done <<< "$changed"
+
+          if [[ "$EVENT_NAME" == pull_request && "$GITHUB_BASE_REF" == main ]]; then
+            rust=true
+            ui=true
+            infra=true
+            e2e=true
+            release=true
+            publish=true
+            add_rust_services
+            add_ui_services
+          fi
+          if [[ "$EVENT_NAME" == push && "$REF_NAME" == develop ]]; then
+            rust=true
+            ui=true
+            infra=true
+            e2e=true
+            release=true
+            publish=true
+            add_rust_services
+            add_ui_services
+          fi
+
+          printf 'rust=%s\nui=%s\ninfra=%s\ne2e=%s\nrelease=%s\npublish=%s\n' \
+            "$rust" "$ui" "$infra" "$e2e" "$release" "$publish" >> "$GITHUB_OUTPUT"
+          printf 'services=%s\n' "$(IFS=,; echo "${services[*]}")" >> "$GITHUB_OUTPUT"
+
+  checks:
+    needs: changes
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        if: needs.changes.outputs.rust == 'true'
+        with:
+          components: llvm-tools-preview
+      - name: Cache Rust crates and build output
+        if: needs.changes.outputs.rust == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Install cargo-llvm-cov
+        if: needs.changes.outputs.rust == 'true'
+        run: cargo install --locked cargo-llvm-cov
+      - uses: actions/setup-node@v5
+        if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Cache node_modules
+        id: node_modules_cache
+        if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true'
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-22-checks-${{ hashFiles('package-lock.json') }}
+      - name: Prepare test report directory
+        run: mkdir -p test-reports
+      - name: Build Rust crates
+        if: needs.changes.outputs.rust == 'true'
+        run: |
+          mkdir -p test-reports
+          cargo build --locked --workspace --release 2>&1 | tee test-reports/cargo-build.log
+      - name: Test Rust crates and check coverage
+        if: needs.changes.outputs.rust == 'true'
+        run: python3 scripts/rust_coverage.py 2>&1 | tee test-reports/cargo-test.log
+      - name: Install UI dependencies
+        if: (needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true') && steps.node_modules_cache.outputs.cache-hit != 'true'
+        run: npm ci
+      - name: Build UI workspaces
+        if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.release == 'true'
+        run: npm run build:frontend 2>&1 | tee test-reports/ui-build.log
+      - name: Test and typecheck UI
+        if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.release == 'true'
+        run: |
+          npm run test:ui 2>&1 | tee test-reports/ui-test.log
+          npm run typecheck:ui 2>&1 | tee test-reports/ui-typecheck.log
+      - name: Typecheck E2E
+        if: needs.changes.outputs.ui == 'true' || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.release == 'true'
+        run: npm run typecheck:e2e 2>&1 | tee test-reports/e2e-typecheck.log
+      - name: Install Playwright browser
+        if: needs.changes.outputs.e2e == 'true' && (needs.changes.outputs.release != 'true' || github.event_name == 'pull_request')
+        run: npx playwright install --with-deps chromium
+      - name: Sign in to GHCR for tested image pull
+        if: needs.changes.outputs.release == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'develop'
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull develop images for release verification
+        if: needs.changes.outputs.release == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'develop'
+        env:
+          IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE_PREFIX="ghcr.io/${GITHUB_REPOSITORY,,}"
+          IMAGE_PREFIX="$IMAGE_PREFIX" IMAGE_TAG="$IMAGE_TAG" \
+            docker compose --env-file infra/.env.example -f infra/compose.yaml pull \
+              crawler auth display frontend activity ui-kit
+      - name: Run system E2E
+        if: needs.changes.outputs.e2e == 'true' && needs.changes.outputs.release != 'true'
+        run: npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
+      - name: Run system E2E against develop images
+        if: needs.changes.outputs.release == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'develop'
+        env:
+          IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+          IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+          E2E_USE_BUILT_IMAGES: "true"
+          E2E_PORT: "18080"
+        run: npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
+      - name: Run system E2E for other release pull requests
+        if: needs.changes.outputs.release == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.ref != 'develop'
+        run: npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
+      - name: Validate Compose configuration
+        if: needs.changes.outputs.infra == 'true'
+        run: docker compose --env-file infra/.env.example -f infra/compose.yaml config --quiet
+      - name: Upload build and test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-and-test-${{ github.run_id }}
+          path: |
+            test-reports/
+            ui/libs/ui-kit/test-reports/
+            target/release/auth_service
+            target/release/comic_crawler
+            target/release/display_service
+            target/llvm-cov/
+            ui/apps/display/dist/
+            ui/apps/activity-remote/dist/
+            ui/libs/ui-kit/dist/
+            playwright-report/
+            test-results/
+            ${{ runner.temp }}/e2e-test.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish:
+    needs: [changes, checks]
+    if: github.event_name == 'push' && needs.changes.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+      IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+      E2E_PORT: "18080"
+      CI: "true"
+      E2E_USE_BUILT_IMAGES: "true"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        if: needs.changes.outputs.release == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Cache node_modules
+        id: node_modules_cache
+        if: needs.changes.outputs.release == 'true'
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-22-publish-${{ hashFiles('package-lock.json') }}
+      - name: Normalize image name
+        run: |
+          echo "IMAGE_PREFIX=$(printf '%s' "$IMAGE_PREFIX" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+      - name: Prepare Compose environment
+        run: |
+          {
+            printf 'CRAWL_API_KEY=%s\n' "$(openssl rand -hex 32)"
+            printf 'AUTH_ADMIN_API_KEY=%s\n' "$(openssl rand -hex 32)"
+            printf 'AUTH_PASSWORD_PEPPER=%s\n' "$(openssl rand -hex 32)"
+            printf 'IMAGE_PREFIX=%s\n' "$IMAGE_PREFIX"
+            printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG"
+            printf 'GATEWAY_PORT=%s\n' "$E2E_PORT"
+            printf 'PUBLIC_BASE_URL=http://127.0.0.1:%s\n' "$E2E_PORT"
+          } > "$RUNNER_TEMP/compose.env"
+      - name: Build affected images
+        id: build_images
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+        run: |
+          set -euo pipefail
+          read -r -a services <<< "${SERVICES//,/ }"
+          docker compose --env-file "$RUNNER_TEMP/compose.env" -f infra/compose.yaml build --pull "${services[@]}"
+      - name: Install E2E dependencies
+        if: needs.changes.outputs.release == 'true' && steps.node_modules_cache.outputs.cache-hit != 'true'
+        run: npm ci
+      - name: Run full system E2E against built images
+        if: needs.changes.outputs.release == 'true'
+        run: |
+          mkdir -p test-reports
+          npx playwright install --with-deps chromium
+          npm run test:e2e 2>&1 | tee "$RUNNER_TEMP/e2e-test.log"
+      - name: Save built images as an artifact
+        if: always() && steps.build_images.outcome == 'success'
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+        run: |
+          set -euo pipefail
+          read -r -a services <<< "${SERVICES//,/ }"
+          images=()
+          for service in "${services[@]}"; do
+            images+=("$IMAGE_PREFIX/$service:$IMAGE_TAG")
+          done
+          docker image save --output "$RUNNER_TEMP/container-images.tar" "${images[@]}"
+      - name: Upload image and E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: container-images-and-e2e-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/container-images.tar
+            test-reports/
+            playwright-report/
+            test-results/
+            ${{ runner.temp }}/e2e-test.log
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Sign in to GitHub Container Registry
+        if: success()
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested images
+        if: success()
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+          CHANNEL: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          read -r -a services <<< "${SERVICES//,/ }"
+          for service in "${services[@]}"; do
+            image="$IMAGE_PREFIX/$service"
+            docker push "$image:$IMAGE_TAG"
+            docker tag "$image:$IMAGE_TAG" "$image:$CHANNEL"
+            docker push "$image:$CHANNEL"
+          done
+
+  promote:
+    needs: changes
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'develop'
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: write
+    env:
+      IMAGE_TAG: ${{ github.event.pull_request.head.sha }}
+      IMAGE_PREFIX: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Normalize image prefix
+        run: echo "IMAGE_PREFIX=$(printf '%s' "$IMAGE_PREFIX" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+      - name: Sign in to GHCR
+        run: printf '%s' "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote tested images to main
+        run: |
+          set -euo pipefail
+          for service in crawler auth display frontend activity ui-kit; do
+            image="$IMAGE_PREFIX/$service"
+            docker pull "$image:$IMAGE_TAG"
+            docker tag "$image:$IMAGE_TAG" "$image:main"
+            docker tag "$image:$IMAGE_TAG" "$image:latest"
+            docker push "$image:main"
+            docker push "$image:latest"
+          done
