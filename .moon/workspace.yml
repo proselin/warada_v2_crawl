@@ -7,3 +7,6 @@ projects:
   display-host: ui/apps/display
   activity-remote: ui/apps/activity-remote
   ui-kit: ui/libs/ui-kit
+
+vcs:
+  defaultBranch: main

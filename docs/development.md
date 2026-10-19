@@ -45,17 +45,17 @@ in their READMEs. E2E setup and folder responsibilities are in
 
 ## CI/CD
 
-GitHub Actions runs path-aware checks for pull requests and publishes affected
-GHCR images after checks pass on `develop`. Every push to `develop` runs the
-full build and test pipeline, builds all images, runs full E2E against them,
-and publishes them only after success. Rust unit tests also produce coverage:
-results below 70% warn, while any workspace or per-file metric below 50% fails
-the checks. CI uses Bash `pipefail` so failed Rust, UI, or E2E tests remain
-failures when their output is piped to logs. A pull request from `develop` to
+GitHub Actions uses Moon's `moon ci` to select and execute affected project
+tasks on pull requests. Pushes to `develop` and pull requests from `develop` to
+`main` run the full task set. Every push to `develop` also builds all images,
+runs full E2E against them, and publishes the tested images only after success.
+Rust unit tests produce coverage: results below 70% warn, while any workspace
+or per-file metric below 50% fails the checks. A pull request from `develop` to
 `main` reruns E2E against the exact SHA-tagged images; merging promotes those
-same images without a rebuild. Build outputs and test reports are available as
-workflow artifacts. The pipeline publishes images but does not deploy them to
-hosts. Require the `checks` status check and pull requests in branch protection
+same images without a rebuild. Rust build data and npm dependencies are cached
+between workflow runs. Build outputs and test reports are uploaded as workflow
+artifacts. The pipeline publishes images but does not deploy them to hosts.
+Require the `checks` status check and pull requests in branch protection
 settings for both branches.
 
 CI artifacts include the Rust test log, UI and E2E JUnit XML, the Playwright

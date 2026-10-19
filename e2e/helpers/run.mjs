@@ -66,7 +66,7 @@ function compose(...args) {
   return ["compose", "--env-file", envFile, "--project-name", project, "-f", "infra/compose.yaml", ...args];
 }
 
- const containerHandlerCmd = "docker";
+const containerHandlerCmd = process.env.CONTAINER_HANDLER ?? "docker";
 
 try { 
   const containerManager = spawnSync(containerHandlerCmd, ["compose", "version"], {

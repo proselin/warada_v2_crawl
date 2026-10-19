@@ -31,6 +31,21 @@ tasks:
     options:
       cache: false
 
+  build-release:
+    command: cargo build --locked --workspace --release
+    options:
+      cache: true
+
+  e2e-typecheck:
+    command: npm run typecheck:e2e
+    options:
+      cache: false
+
+  e2e:
+    command: npm run test:e2e
+    options:
+      cache: false
+
   deps-update:
     command: cargo update
     options:
