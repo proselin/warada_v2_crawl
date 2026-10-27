@@ -1,3 +1,4 @@
+mod config;
 mod database;
 mod jwt_cache;
 mod jwt_keys;
@@ -9,7 +10,7 @@ mod state;
 mod tokens;
 mod verification;
 
-use std::{env, error::Error, net::SocketAddr, path::Path, sync::Arc};
+use std::{error::Error, sync::Arc};
 
 use axum::{
     Router,
@@ -17,9 +18,11 @@ use axum::{
 };
 use jsonwebtoken::{Algorithm, Validation};
 use state::AppState;
-use tracing::info;
+use tracing::{error, info};
 
-use crate::{database::DatabaseService, jwt_cache::JwtVerificationCache, jwt_keys::JwtKeys};
+use crate::{
+    config::Config, database::DatabaseService, jwt_cache::JwtVerificationCache, jwt_keys::JwtKeys,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -30,57 +33,70 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
         .init();
 
-    let signing_key_id = env::var("JWT_SIGNING_KEY_ID")?;
-    let legacy_key_id = env::var("JWT_LEGACY_KEY_ID").unwrap_or_else(|_| signing_key_id.clone());
-    let private_key_path = env::var("JWT_PRIVATE_KEY_PATH")?;
-    let jwt_keys = Arc::new(JwtKeys::load(
-        Path::new(&env::var("JWT_PUBLIC_KEYS_DIR")?),
-        Path::new(&private_key_path),
-        signing_key_id,
-        legacy_key_id,
-    )?);
-    let issuer = env::var("JWT_ISSUER")?;
-    let audience = env::var("JWT_AUDIENCE")?;
-    let admin_key = env::var("AUTH_ADMIN_API_KEY")?;
-    let password_pepper = env::var("AUTH_PASSWORD_PEPPER")?;
-    let token_ttl = env::var("ACCESS_TOKEN_TTL_SECONDS")
-        .unwrap_or_else(|_| "900".to_owned())
-        .parse::<u64>()?;
-    let cache_capacity = env::var("JWT_VERIFY_CACHE_CAPACITY")
-        .unwrap_or_else(|_| "10000".to_owned())
-        .parse::<usize>()?;
-    if !(60..=3600).contains(&token_ttl)
-        || admin_key.len() < 32
-        || password_pepper.len() < 32
-        || !(1..=1_000_000).contains(&cache_capacity)
-    {
-        return Err("token TTL must be 60-3600 seconds, admin key and password pepper at least 32 bytes, and JWT cache capacity 1-1000000".into());
-    }
+    info!("starting auth service");
+
+    // Load and validate all configuration up front so startup failures are
+    // reported with the exact offending variable.
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(error) => {
+            error!(%error, "configuration error; refusing to start");
+            return Err(error.into());
+        }
+    };
+
+    info!(
+        public_keys_dir = %config.public_keys_dir.display(),
+        private_key_path = %config.private_key_path.display(),
+        "loading JWT keys"
+    );
+    let jwt_keys = match JwtKeys::load(
+        &config.public_keys_dir,
+        &config.private_key_path,
+        config.signing_key_id.clone(),
+        config.legacy_key_id.clone(),
+    ) {
+        Ok(keys) => {
+            info!("JWT keys loaded");
+            Arc::new(keys)
+        }
+        Err(error) => {
+            error!(%error, "failed to load JWT keys; refusing to start");
+            return Err(error);
+        }
+    };
 
     let mut validation = Validation::new(Algorithm::RS256);
     validation.leeway = 0;
-    validation.set_issuer(&[issuer.as_str()]);
-    validation.set_audience(&[audience.as_str()]);
+    validation.set_issuer(&[config.issuer.as_str()]);
+    validation.set_audience(&[config.audience.as_str()]);
+
+    info!(database_path = %config.database_path, "connecting to database");
+    let db = match DatabaseService::connect(&config.database_path).await {
+        Ok(db) => {
+            info!("database connected and schema ready");
+            db
+        }
+        Err(error) => {
+            error!(%error, "failed to connect to database; refusing to start");
+            return Err(std::io::Error::other(error).into());
+        }
+    };
+
     let state = Arc::new(AppState {
-        db: DatabaseService::connect(&env::var("DATABASE_PATH")?)
-            .await
-            .map_err(std::io::Error::other)?,
-        admin_key: Arc::from(admin_key.into_bytes()),
-        password_pepper: Arc::from(password_pepper.into_bytes()),
+        db,
+        admin_key: Arc::from(config.admin_key.into_bytes()),
+        password_pepper: Arc::from(config.password_pepper.into_bytes()),
         jwt_keys,
         validation: Arc::new(validation),
-        verification_cache: Arc::new(JwtVerificationCache::new(cache_capacity)),
-        issuer: Arc::from(issuer),
-        audience: Arc::from(audience),
-        token_ttl,
-        allow_implicit: env::var("ENABLE_IMPLICIT_FLOW")
-            .is_ok_and(|value| value.eq_ignore_ascii_case("true")),
-        cookie_secure: !env::var("AUTH_COOKIE_SECURE")
-            .is_ok_and(|value| value.eq_ignore_ascii_case("false")),
+        verification_cache: Arc::new(JwtVerificationCache::new(config.cache_capacity)),
+        issuer: Arc::from(config.issuer),
+        audience: Arc::from(config.audience),
+        token_ttl: config.token_ttl,
+        allow_implicit: config.allow_implicit,
+        cookie_secure: config.cookie_secure,
     });
-    let addr = env::var("AUTH_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:8081".to_owned())
-        .parse::<SocketAddr>()?;
+    let addr = config.addr;
 
     let app = Router::new()
         .route("/health", get(health))
@@ -111,9 +127,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/oauth/token", post(oauth::token))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            error!(%addr, %error, "failed to bind listen address; refusing to start");
+            return Err(error.into());
+        }
+    };
     info!(%addr, "auth service listening");
-    axum::serve(listener, app).await?;
+    if let Err(error) = axum::serve(listener, app).await {
+        error!(%error, "server terminated with error");
+        return Err(error.into());
+    }
+    info!("auth service shut down");
     Ok(())
 }
 

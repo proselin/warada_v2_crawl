@@ -73,7 +73,7 @@ for faster subsequent runs.
    dependencies over new dependencies, abstractions, or configuration knobs.
 4. Validate external input and preserve explicit errors at trust boundaries.
    Do not silently convert dependency or persistence errors into success.
-5. Never commit credentials, private JWT keys, generated secrets, local `.env`
+5. Never commit credentials, private JWT keys, generated secrets, local `.env.bak`
    files, build output, or test artifacts.
 6. Update architecture or operational docs when behavior, ownership, protocol,
    routing, deployment, or developer commands change.

@@ -16,3 +16,10 @@ node_modules/
 .moon/cache/
 playwright-report/
 test-results/
+
+secrets/*
+
+.DS_Store
+*/.DS_Store
+
+.github/workflows/ci.yml       .gitignore       Cargo.lock       crates/apps/auth-service/Cargo.toml       crates/apps/auth-service/src/main.rs       crates/apps/auth-service/src/management.rs       crates/apps/auth-service/src/models.rs       crates/apps/auth-service/src/oauth.rs       crates/apps/auth-service/src/verification.rs       crates/apps/comic-crawler/src/config.rs       docs/development.md       e2e/helpers/run.mjs       infra/.env.example       infra/README.md       infra/auth.compose.yaml       infra/compose.yaml       infra/generate-secret.sh

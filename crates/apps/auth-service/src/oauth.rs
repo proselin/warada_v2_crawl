@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use url::Url;
+use utoipa::ToSchema;
 
 use crate::{
     models::{ClientCredential, PrincipalType, TokenResponse},
@@ -22,7 +23,7 @@ use crate::{
     tokens::issue_token,
 };
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(super) struct CreatePublicClient {
     client_id: String,
     redirect_uri: String,
@@ -55,7 +56,7 @@ pub(super) struct AuthorizeForm {
     consent: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(super) struct TokenRequest {
     grant_type: String,
     client_id: Option<String>,
@@ -66,7 +67,7 @@ pub(super) struct TokenRequest {
     code_verifier: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(super) struct PublicClientResponse {
     client_id: String,
     redirect_uri: String,
@@ -75,6 +76,20 @@ pub(super) struct PublicClientResponse {
     created_at: i64,
 }
 
+/// Register a PKCE public client.
+#[utoipa::path(
+    post,
+    path = "/v1/public-clients",
+    tag = "Public Clients",
+    security(("adminApiKey" = [])),
+    request_body = CreatePublicClient,
+    responses(
+        (status = 201, description = "Registered", body = PublicClientResponse),
+        (status = 400, description = "Invalid redirect_uri or scopes"),
+        (status = 401, description = "Unauthorized"),
+        (status = 409, description = "client_id already exists")
+    )
+)]
 pub(super) async fn create_public_client(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -117,6 +132,25 @@ pub(super) async fn create_public_client(
     ))
 }
 
+/// Render the login/consent page (Authorization Code + PKCE).
+#[utoipa::path(
+    get,
+    path = "/oauth/authorize",
+    tag = "OAuth",
+    params(
+        ("response_type" = String, Query, description = "`code` (or `token` when implicit flow is enabled)"),
+        ("client_id" = String, Query),
+        ("redirect_uri" = String, Query),
+        ("state" = String, Query, description = "Non-empty opaque value"),
+        ("scope" = Option<String>, Query),
+        ("code_challenge" = Option<String>, Query),
+        ("code_challenge_method" = Option<String>, Query, description = "Must be S256")
+    ),
+    responses(
+        (status = 200, description = "Login/consent HTML page", content_type = "text/html"),
+        (status = 400, description = "Invalid request")
+    )
+)]
 pub(super) async fn authorize_page(
     State(state): State<Arc<AppState>>,
     Query(request): Query<AuthorizeRequest>,
@@ -156,6 +190,19 @@ pub(super) async fn authorize_page(
     Ok((headers, Html(html)))
 }
 
+/// Submit the login + consent form and redirect back to the client.
+#[utoipa::path(
+    post,
+    path = "/oauth/authorize",
+    tag = "OAuth",
+    request_body(content_type = "application/x-www-form-urlencoded", description = "Login + consent form fields"),
+    responses(
+        (status = 302, description = "Redirect to redirect_uri with code (or token fragment for implicit)"),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Bad credentials"),
+        (status = 403, description = "CSRF mismatch or consent not granted")
+    )
+)]
 pub(super) async fn authorize(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -267,6 +314,18 @@ pub(super) async fn authorize(
     Ok((headers, Redirect::to(redirect.as_str())))
 }
 
+/// OAuth token endpoint. Supports authorization_code (PKCE) and client_credentials.
+#[utoipa::path(
+    post,
+    path = "/oauth/token",
+    tag = "OAuth",
+    request_body(content = TokenRequest, content_type = "application/x-www-form-urlencoded"),
+    responses(
+        (status = 200, description = "Access token", body = TokenResponse),
+        (status = 400, description = "Invalid grant"),
+        (status = 401, description = "Invalid client credentials")
+    )
+)]
 pub(super) async fn token(
     State(state): State<Arc<AppState>>,
     Form(request): Form<TokenRequest>,

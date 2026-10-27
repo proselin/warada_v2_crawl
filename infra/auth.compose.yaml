@@ -1,0 +1,37 @@
+services:
+  auth:
+    image: ${IMAGE_PREFIX:-warada}/auth:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: infra/Containerfile
+      args:
+        PACKAGE: auth_service
+        BINARY: auth_service
+    restart: unless-stopped
+    environment:
+      DATABASE_PATH: /data/db/warada.sqlite
+      AUTH_ADDR: 0.0.0.0:8081
+      AUTH_ADMIN_API_KEY: ${AUTH_ADMIN_API_KEY:?Set AUTH_ADMIN_API_KEY in infra/.env.bak}
+      AUTH_PASSWORD_PEPPER: ${AUTH_PASSWORD_PEPPER:?Set AUTH_PASSWORD_PEPPER in infra/.env.bak}
+      JWT_PRIVATE_KEY_PATH: /run/jwt/private.pem
+      JWT_PUBLIC_KEYS_DIR: /run/jwt/public
+      JWT_SIGNING_KEY_ID: ${JWT_SIGNING_KEY_ID:-current}
+      JWT_LEGACY_KEY_ID: ${JWT_LEGACY_KEY_ID:-current}
+      JWT_ISSUER: ${JWT_ISSUER:-http://localhost:8080/}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-warada-api}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+      RUST_LOG: info
+    volumes:
+      - ${JWT_SECRETS_DIR:-./secrets/jwt}:/run/jwt:ro
+    depends_on:
+      crawler:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-fsS", "http://127.0.0.1:8081/health" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  sqlite-data:
+  crawler-images:

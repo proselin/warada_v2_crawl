@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PrincipalType {
     User,
@@ -18,7 +19,7 @@ pub(crate) struct Claims {
     pub(crate) scope: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(crate) struct Identity {
     pub(crate) subject: String,
     pub(crate) principal_type: PrincipalType,
@@ -32,7 +33,7 @@ pub(crate) struct UserRecord {
     pub(crate) created_at: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(crate) struct UserView {
     pub(crate) id: String,
     pub(crate) email: String,
@@ -59,13 +60,13 @@ pub(crate) struct UserCredential {
     pub(crate) created_at: i64,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct CreateUser {
     pub(crate) email: String,
     pub(crate) password: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct UpdateUser {
     pub(crate) email: Option<String>,
     pub(crate) password: Option<String>,
@@ -79,7 +80,7 @@ pub(crate) struct ClientRecord {
     pub(crate) created_at: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(crate) struct ClientView {
     pub(crate) client_id: String,
     pub(crate) scopes: String,
@@ -113,28 +114,29 @@ pub(crate) struct AuthorizationCodeRecord {
     pub(crate) scopes: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct CreateClient {
     pub(crate) client_id: String,
     pub(crate) scopes: Option<Vec<String>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(crate) struct NewClientResponse {
     pub(crate) client_id: String,
     pub(crate) client_secret: String,
     pub(crate) scopes: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct UpdateClient {
     pub(crate) scopes: Option<Vec<String>>,
     pub(crate) active: Option<bool>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(crate) struct TokenResponse {
     pub(crate) access_token: String,
+    #[schema(value_type = String, example = "Bearer")]
     pub(crate) token_type: &'static str,
     pub(crate) expires_in: u64,
 }

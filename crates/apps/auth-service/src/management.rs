@@ -17,6 +17,17 @@ use crate::{
     state::AppState,
 };
 
+/// List all users.
+#[utoipa::path(
+    get,
+    path = "/v1/users",
+    tag = "Users",
+    security(("adminApiKey" = [])),
+    responses(
+        (status = 200, description = "User list", body = [UserView]),
+        (status = 401, description = "Unauthorized")
+    )
+)]
 pub(crate) async fn list_users(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -30,6 +41,20 @@ pub(crate) async fn list_users(
     Ok(Json(users.into_iter().map(UserView::from).collect()))
 }
 
+/// Create a user.
+#[utoipa::path(
+    post,
+    path = "/v1/users",
+    tag = "Users",
+    security(("adminApiKey" = [])),
+    request_body = CreateUser,
+    responses(
+        (status = 201, description = "Created", body = UserView),
+        (status = 400, description = "Invalid email or password"),
+        (status = 401, description = "Unauthorized"),
+        (status = 409, description = "Email already exists")
+    )
+)]
 pub(crate) async fn create_user(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -63,6 +88,19 @@ pub(crate) async fn create_user(
     ))
 }
 
+/// Get a user by id.
+#[utoipa::path(
+    get,
+    path = "/v1/users/{id}",
+    tag = "Users",
+    security(("adminApiKey" = [])),
+    params(("id" = String, Path, description = "User id")),
+    responses(
+        (status = 200, description = "User", body = UserView),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Not found")
+    )
+)]
 pub(crate) async fn get_user(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -78,6 +116,22 @@ pub(crate) async fn get_user(
     Ok(Json(UserView::from(user)))
 }
 
+/// Update a user. At least one field must be present.
+#[utoipa::path(
+    patch,
+    path = "/v1/users/{id}",
+    tag = "Users",
+    security(("adminApiKey" = [])),
+    params(("id" = String, Path, description = "User id")),
+    request_body = UpdateUser,
+    responses(
+        (status = 200, description = "Updated", body = UserView),
+        (status = 400, description = "No fields or invalid value"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Not found"),
+        (status = 409, description = "Email already exists")
+    )
+)]
 pub(crate) async fn update_user(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -129,6 +183,19 @@ pub(crate) async fn update_user(
     }))
 }
 
+/// Deactivate a user. Does not delete account data.
+#[utoipa::path(
+    delete,
+    path = "/v1/users/{id}",
+    tag = "Users",
+    security(("adminApiKey" = [])),
+    params(("id" = String, Path, description = "User id")),
+    responses(
+        (status = 204, description = "Deactivated"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Not found")
+    )
+)]
 pub(crate) async fn deactivate_user(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -146,6 +213,17 @@ pub(crate) async fn deactivate_user(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// List service clients.
+#[utoipa::path(
+    get,
+    path = "/v1/service-clients",
+    tag = "Service Clients",
+    security(("adminApiKey" = [])),
+    responses(
+        (status = 200, description = "Client list", body = [ClientView]),
+        (status = 401, description = "Unauthorized")
+    )
+)]
 pub(crate) async fn list_clients(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -159,6 +237,20 @@ pub(crate) async fn list_clients(
     Ok(Json(clients.into_iter().map(ClientView::from).collect()))
 }
 
+/// Create a service client. The generated secret is returned once.
+#[utoipa::path(
+    post,
+    path = "/v1/service-clients",
+    tag = "Service Clients",
+    security(("adminApiKey" = [])),
+    request_body = CreateClient,
+    responses(
+        (status = 201, description = "Created", body = NewClientResponse),
+        (status = 400, description = "Invalid client_id or scopes"),
+        (status = 401, description = "Unauthorized"),
+        (status = 409, description = "client_id already exists")
+    )
+)]
 pub(crate) async fn create_client(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -203,6 +295,21 @@ pub(crate) async fn create_client(
     ))
 }
 
+/// Update a service client. At least one field must be present.
+#[utoipa::path(
+    patch,
+    path = "/v1/service-clients/{client_id}",
+    tag = "Service Clients",
+    security(("adminApiKey" = [])),
+    params(("client_id" = String, Path, description = "Service client id")),
+    request_body = UpdateClient,
+    responses(
+        (status = 200, description = "Updated", body = ClientView),
+        (status = 400, description = "No fields present"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Not found")
+    )
+)]
 pub(crate) async fn update_client(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -243,6 +350,19 @@ pub(crate) async fn update_client(
     }))
 }
 
+/// Deactivate a service client.
+#[utoipa::path(
+    delete,
+    path = "/v1/service-clients/{client_id}",
+    tag = "Service Clients",
+    security(("adminApiKey" = [])),
+    params(("client_id" = String, Path, description = "Service client id")),
+    responses(
+        (status = 204, description = "Deactivated"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Not found")
+    )
+)]
 pub(crate) async fn deactivate_client(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,

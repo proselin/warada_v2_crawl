@@ -2,8 +2,8 @@ use std::env;
 use std::path::PathBuf;
 
 pub fn load_dotenv() {
-    dotenvy::from_filename("../../../.env").ok();
-    dotenvy::from_filename(".env.local").ok();
+    dotenvy::from_filename("../../../.env.bak").ok();
+    dotenvy::from_filename(".env.bak.local").ok();
 }
 
 fn require_var(name: &str) -> Result<String, String> {

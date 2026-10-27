@@ -28,7 +28,7 @@ mkdirSync(join(jwtDir, "public"), { recursive: true });
 writeFileSync(join(jwtDir, "private.pem"), privateKey, { mode: 0o600 });
 writeFileSync(join(jwtDir, "public", "current.pem"), publicKey);
 
-const envFile = join(temp, ".env");
+const envFile = join(temp, ".env.bak");
 writeFileSync(
   envFile,
   [

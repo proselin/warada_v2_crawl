@@ -8,6 +8,17 @@ use axum::{
 
 use crate::{models::Identity, security::bearer_token, state::AppState};
 
+/// Verify an access token and return its subject, principal type, and scopes.
+#[utoipa::path(
+    get,
+    path = "/v1/verify",
+    tag = "Verify",
+    security(("accessToken" = [])),
+    responses(
+        (status = 200, description = "Token is valid", body = Identity),
+        (status = 401, description = "Missing or invalid token")
+    )
+)]
 pub(crate) async fn verify(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,

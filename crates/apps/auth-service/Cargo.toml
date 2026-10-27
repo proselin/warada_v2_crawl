@@ -17,8 +17,13 @@ tokio-rusqlite = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
+dotenvy = "0.15.7"
+utoipa = { version = "6", features = ["axum_extras"] }
 
 [[test]]
 name = "auth"
 path = "tests/auth.rs"
 test = false
+
+[dev-dependencies]
+dotenv = "0.15.0"

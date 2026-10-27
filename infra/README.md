@@ -10,8 +10,8 @@ Compose's private network.
 From the repository root:
 
 ```sh
-cp infra/.env.example infra/.env
-# Set unique secrets in infra/.env. A convenient secret source is:
+cp infra/.env.bak.example infra/.env.bak
+# Set unique secrets in infra/.env.bak. A convenient secret source is:
 openssl rand -hex 32
 
 mkdir -p infra/secrets/jwt/public
@@ -20,7 +20,7 @@ openssl rsa -in infra/secrets/jwt/private.pem -pubout \
   -out infra/secrets/jwt/public/current.pem
 chmod 600 infra/secrets/jwt/private.pem
 
-docker compose --env-file infra/.env -f infra/compose.yaml up --build -d
+docker compose --env-file infra/.env.bak -f infra/compose.yaml up --build -d
 ```
 
 Use different random values for `CRAWL_API_KEY`, `AUTH_ADMIN_API_KEY`, and
@@ -83,11 +83,11 @@ repository settings; the workflow cannot enforce those settings by itself.
 ## Operations
 
 ```sh
-docker compose --env-file infra/.env -f infra/compose.yaml ps
-docker compose --env-file infra/.env -f infra/compose.yaml logs -f gateway crawler
-docker compose --env-file infra/.env -f infra/compose.yaml down
+docker compose --env-file infra/.env.bak -f infra/compose.yaml ps
+docker compose --env-file infra/.env.bak -f infra/compose.yaml logs -f gateway crawler
+docker compose --env-file infra/.env.bak -f infra/compose.yaml down
 ```
 
 `down` keeps database and image volumes. Use `down -v` only when you intend to
 delete the persisted database and image data. Back up `infra/secrets/jwt` and
-the Docker volumes; never commit the `.env` file or private signing key.
+the Docker volumes; never commit the `.env.bak` file or private signing key.
